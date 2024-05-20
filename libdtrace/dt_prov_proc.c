@@ -22,8 +22,6 @@
 
 #include "dt_dctx.h"
 #include "dt_cg.h"
-#include "dt_bpf.h"
-#include "dt_provider.h"
 #include "dt_probe.h"
 #include "dt_pt_regs.h"
 
@@ -468,8 +466,14 @@ static int probe_info(dtrace_hdl_t *dtp, const dt_probe_t *prp,
 
 	for (i = pidx; i < pidx + argc; i++) {
 		probe_arg_t	*arg = &probe_args[i];
+		dt_argdesc_t	*argd = &arg->argdesc;
+		dt_argdesc_t	*parg = &argv[arg->argno];
 
-		argv[arg->argno] = arg->argdesc;
+		*parg = *argd;
+		if (argd->native)
+			parg->native = strdup(argd->native);
+		if (argd->xlate)
+			parg->xlate = strdup(argd->xlate);
 	}
 
 done:
@@ -484,6 +488,7 @@ dt_provimpl_t	dt_proc = {
 	.prog_type	= BPF_PROG_TYPE_UNSPEC,
 	.populate	= &populate,
 	.enable		= &enable,
+	.load_prog	= &dt_bpf_prog_load,
 	.trampoline	= &trampoline,
 	.probe_info	= &probe_info,
 };

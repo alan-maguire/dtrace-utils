@@ -67,7 +67,7 @@ const dt_version_t _dtrace_versions[] = {
 static const dt_provimpl_t *dt_providers[] = {
 	&dt_dtrace,		/* list dt_dtrace first */
 	&dt_cpc,
-	&dt_fbt,
+	&dt_fbt_fprobe,
 	&dt_io,
 	&dt_ip,
 	&dt_lockstat,
@@ -1153,7 +1153,8 @@ dt_vopen(int version, int flags, int *errp,
 	if (dtrace_setopt(dtp, "libdir", _dtrace_libdir) != 0)
 		return set_open_errno(dtp, errp, dtp->dt_errno);
 
-	dt_bpf_init_helpers(dtp);
+	dt_bpf_init(dtp);
+	dt_btf_get_module_ids(dtp);
 
 	return dtp;
 }
@@ -1234,7 +1235,7 @@ dtrace_close(dtrace_hdl_t *dtp)
 	if (dtp == NULL)
 		return;
 
-	dt_probe_detach(dtp);
+	dt_probe_detach_all(dtp);
 
 	dt_free(dtp, dtp->dt_conf.cpus);
 
@@ -1279,6 +1280,8 @@ dtrace_close(dtrace_hdl_t *dtp)
 	dt_htab_destroy(dtp, dtp->dt_mods);
 	dt_htab_destroy(dtp, dtp->dt_kernpaths);
 
+	if (dtp->dt_shared_btf != NULL)
+		dt_btf_destroy(dtp, dtp->dt_shared_btf);
 	if (dtp->dt_shared_ctf != NULL)
 		ctf_close(dtp->dt_shared_ctf);
 	if (dtp->dt_ctfa != NULL)
@@ -1335,6 +1338,7 @@ dtrace_close(dtrace_hdl_t *dtp)
 
 	free(dtp->dt_drops);
 	free(dtp->dt_module_path);
+	free(dtp->dt_ctfa_path);
 	free(dtp);
 
 	dt_debug_dump(0);

@@ -21,6 +21,8 @@
 #include <dt_strtab.h>
 #include <dt_bpf.h>
 #include <dt_bpf_maps.h>
+#include <linux/btf.h>
+#include <dt_btf.h>
 #include <port.h>
 
 static boolean_t	dt_gmap_done = 0;
@@ -73,18 +75,23 @@ dt_bpf_lockmem_error(dtrace_hdl_t *dtp, const char *msg)
 }
 
 /*
- * Load a BPF program into the kernel.
+ * Load a BPF program into the kernel (and attach it to an object by BTF id if
+ * specified).
  */
 int
-dt_bpf_prog_load(enum bpf_prog_type prog_type, const dtrace_difo_t *dp,
-		     uint32_t log_level, char *log_buf, size_t log_buf_sz)
+dt_bpf_prog_attach(enum bpf_prog_type ptype, enum bpf_attach_type atype,
+		   int btf_fd, uint32_t btf_id, const dtrace_difo_t *dp,
+		   uint32_t log_level, char *log_buf, size_t log_buf_sz)
 {
 	union bpf_attr	attr;
 	int		fd;
 	int		i = 0;
 
 	memset(&attr, 0, sizeof(attr));
-	attr.prog_type = prog_type;
+	attr.prog_type = ptype;
+	attr.expected_attach_type = atype;
+	attr.attach_btf_obj_fd = btf_fd;
+	attr.attach_btf_id = btf_id;
 	attr.insn_cnt = dp->dtdo_len;
 	attr.insns = (uint64_t)dp->dtdo_buf;
 	attr.license = (uint64_t)BPF_CG_LICENSE;
@@ -101,6 +108,71 @@ dt_bpf_prog_load(enum bpf_prog_type prog_type, const dtrace_difo_t *dp,
 	} while (fd == -EAGAIN && ++i < 5);
 
 	return fd;
+}
+
+/*
+ * Load the BPF program for a probe into the kernel.
+ */
+int
+dt_bpf_prog_load(dtrace_hdl_t *dtp, const dt_probe_t *prp,
+		 const dtrace_difo_t *dp, uint32_t lvl, char *buf, size_t sz)
+{
+	return dt_bpf_prog_attach(prp->prov->impl->prog_type, 0, 0, 0, dp,
+				  lvl, buf, sz);
+}
+
+/*
+ * Get BTF dict information based on its fd.
+ */
+int
+dt_bpf_btf_get_info_by_fd(int fd, btf_info_t *info, uint32_t *size)
+{
+	union bpf_attr	attr;
+	int		rc;
+
+	memset(&attr, 0, sizeof(attr));
+	attr.info.bpf_fd = fd;
+	attr.info.info = (uint64_t)info;
+	attr.info.info_len = *size;
+
+	rc = dt_bpf(BPF_OBJ_GET_INFO_BY_FD, &attr);
+	if (rc == 0)
+		*size = attr.info.info_len;
+
+	return rc;
+}
+
+/*
+ * Get a file descriptor for a BTF dict based on its id.
+ */
+int
+dt_bpf_btf_get_fd_by_id(uint32_t id)
+{
+	union bpf_attr	attr;
+
+	memset(&attr, 0, sizeof(attr));
+	attr.btf_id = id;
+
+	return dt_bpf(BPF_BTF_GET_FD_BY_ID, &attr);
+}
+
+/*
+ * Get the id for the "next" BTF dict based on a given id (0 to get the first).
+ */
+int
+dt_bpf_btf_get_next_id(uint32_t curr, uint32_t *next)
+{
+	union bpf_attr	attr;
+	int		rc;
+
+	memset(&attr, 0, sizeof(attr));
+	attr.start_id = curr;
+
+	rc = dt_bpf(BPF_BTF_GET_NEXT_ID, &attr);
+	if (rc == 0)
+		*next = attr.next_id;
+
+	return rc;
 }
 
 /*
@@ -337,7 +409,7 @@ have_helper(uint32_t func_id)
 	dp.dtdo_len = ARRAY_SIZE(insns);
 
 	/* If the program loads, we can use the helper. */
-	fd = dt_bpf_prog_load(BPF_PROG_TYPE_KPROBE, &dp,
+	fd = dt_bpf_prog_attach(BPF_PROG_TYPE_KPROBE, 0, 0, 0, &dp,
 			      1, log, DT_BPF_LOG_SIZE_SMALL);
 	if (fd > 0) {
 		close(fd);
@@ -363,7 +435,7 @@ have_helper(uint32_t func_id)
 	       strstr(ptr, "unknown func") == NULL;
 }
 
-void
+static void
 dt_bpf_init_helpers(dtrace_hdl_t *dtp)
 {
 	uint32_t	i;
@@ -384,6 +456,50 @@ dt_bpf_init_helpers(dtrace_hdl_t *dtp)
 	BPF_HELPER_MAP(get_current_task_btf, unspec);
 	BPF_HELPER_MAP(task_pt_regs, unspec);
 #undef BPF_HELPER_MAP
+}
+
+static int
+have_attach_type(enum bpf_prog_type ptype, enum bpf_attach_type atype,
+		 uint32_t btf_id)
+{
+	struct bpf_insn	insns[] = {
+				BPF_MOV_IMM(BPF_REG_0, 0),
+				BPF_RETURN()
+			};
+	dtrace_difo_t	dp;
+	int		fd;
+
+	dp.dtdo_buf = insns;
+	dp.dtdo_len = ARRAY_SIZE(insns);
+
+	fd = dt_bpf_prog_attach(ptype, atype, 0, btf_id, &dp, 0, NULL, 0);
+	/* If the program loads, we can use the attach type. */
+	if (fd > 0) {
+		close(fd);
+		return 1;
+	}
+
+	/* Failed -> attach type not available to us */
+	return 0;
+}
+
+static void
+dt_bpf_init_features(dtrace_hdl_t *dtp)
+{
+	uint32_t	btf_id;
+
+	btf_id = dt_btf_lookup_name_kind(dtp, dtp->dt_shared_btf, "bpf_check",
+					 BTF_KIND_FUNC);
+	if (btf_id >= 0 &&
+	    have_attach_type(BPF_PROG_TYPE_TRACING, BPF_TRACE_FENTRY, btf_id))
+		BPF_SET_FEATURE(dtp, BPF_FEAT_FENTRY);
+}
+
+void
+dt_bpf_init(dtrace_hdl_t *dtp)
+{
+	dt_bpf_init_helpers(dtp);
+	dt_bpf_init_features(dtp);
 }
 
 static int
@@ -1000,8 +1116,7 @@ dt_bpf_load_prog(dtrace_hdl_t *dtp, const dt_probe_t *prp,
 	DT_DISASM_PROG_FINAL(dtp, cflags, dp, stderr, NULL, prp->desc);
 
 	if (dtp->dt_options[DTRACEOPT_BPFLOG] == DTRACEOPT_UNSET) {
-		rc = dt_bpf_prog_load(prp->prov->impl->prog_type, dp, 0,
-				      NULL, 0);
+		rc = prp->prov->impl->load_prog(dtp, prp, dp, 0, NULL, 0);
 		if (rc >= 0)
 			return rc;
 
@@ -1014,8 +1129,7 @@ dt_bpf_load_prog(dtrace_hdl_t *dtp, const dt_probe_t *prp,
 		logsz = DT_BPF_LOG_SIZE_DEFAULT;
 	log = dt_zalloc(dtp, logsz);
 	assert(log != NULL);
-	rc = dt_bpf_prog_load(prp->prov->impl->prog_type, dp, 4 | 2 | 1,
-			      log, logsz);
+	rc = prp->prov->impl->load_prog(dtp, prp, dp, 4 | 2 | 1, log, logsz);
 	if (rc < 0) {
 		char	msg[64];
 		int	err = -rc;
@@ -1179,7 +1293,7 @@ dt_bpf_load_progs(dtrace_hdl_t *dtp, uint_t cflags)
 			return -1;
 
 		if (prp->prov->impl->attach)
-		    rc = prp->prov->impl->attach(dtp, prp, fd);
+			rc = prp->prov->impl->attach(dtp, prp, fd);
 
 		if (rc == -ENOTSUPP) {
 			char	*s;

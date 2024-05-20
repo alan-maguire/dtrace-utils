@@ -13,6 +13,7 @@ libdtrace-build_DIR := $(current-dir)
 libdtrace-build_SOURCES = dt_aggregate.c \
 			  dt_as.c \
 			  dt_bpf.c \
+			  dt_btf.c \
 			  dt_buf.c \
 			  dt_cc.c \
 			  dt_cg.c \
@@ -71,10 +72,6 @@ libdtrace-build_SOURCES = dt_aggregate.c \
 			  dt_work.c \
 			  dt_xlator.c
 
-ifdef HAVE_LIBCTF
-libdtrace-build_SOURCES += dt_btf.c
-endif
-
 libdtrace-build_SRCDEPS := dt_grammar.h $(objdir)/dt_git_version.h
 
 SHLIBS += libdtrace
@@ -99,6 +96,7 @@ libdtrace_LIBS += -lopcodes
 endif
 
 # Disable certain warnings for these files
+dt_bpf.c_CFLAGS := -Wno-pedantic
 dt_btf.c_CFLAGS := -Wno-pedantic
 dt_consume.c_CFLAGS := -Wno-pedantic
 dt_debug.c_CFLAGS := -Wno-prio-ctor-dtor
@@ -164,6 +162,8 @@ WORKING_DLIBS = errno.d \
 
 # M4-driven substitutions.
 
+override dir-dlib-targets = $(foreach kernel,$(SHORTKERNELS), \
+	$(objdir)/dlibs/$(kernel)/.dir.stamp)
 override m4-dlib-targets = $(foreach kernel,$(SHORTKERNELS), \
 	$(addprefix $(objdir)/dlibs/$(kernel)/, \
 	$(filter $(WORKING_DLIBS),$(M4_DLIBS))))
@@ -172,9 +172,15 @@ override other-dlib-targets = $(foreach kernel,$(SHORTKERNELS), \
 	$(filter-out $(M4_DLIBS),$(WORKING_DLIBS))))
 
 $(objdir)/dlibs/.dir.stamp:
-	mkdir -p $(objdir)/dlibs $(objdir)/dlibs/drti $(foreach kernel,$(SHORTKERNELS),$(objdir)/dlibs/$(kernel))
+	mkdir -p $(objdir)/dlibs $(objdir)/dlibs/drti
 	@touch $(objdir)/dlibs/.dir.stamp
 	ln -srf $(libdtrace-build_DIR)/drti-vers $(objdir)/dlibs/drti
+	$(call describe-target,CP,dlibs)
+	cp -rp dlibs/$(ARCH)/* $(objdir)/dlibs
+
+$(foreach kernel,$(SHORTKERNELS),$(objdir)/dlibs/$(kernel)/.dir.stamp):
+	mkdir -p $(dir $@)
+	@touch $@
 
 define dlib-kernel-ver-template
 $(objdir)/dlibs/$(shell printf %s $(1) | sed -e 's/^\([0-9]*\)\.\([0-9]*\)\.\([0-9]*\).*$$/\1.\2.\3/')/%.d: override SHORTKERNELVER := $(shell printf %s $(1) | sed -e 's/^\([0-9]*\)\.\([0-9]*\)\.\([0-9]*\).*$$/\1.\2.\3/' | awk -F. '{ print $$1 * 1000 * 1000 + $$2 * 1000 + $$3 }')
@@ -228,8 +234,7 @@ $(other-dlib-targets): $(objdir)/dlibs/%.d: $$(foreach name,$$(notdir %.d), \
 	cp -f $< $@
 
 PHONIES += dlibs
-TARGETS += dlibs
-dlibs: $(m4-dlib-targets) $(other-dlib-targets)
+dlibs: $(dir-dlib-targets) $(m4-dlib-targets) $(other-dlib-targets)
 
 PHONIES += objs
 TARGETS += objs
@@ -290,7 +295,7 @@ install::
 	$(if $(NATIVE_BITNESS_ONLY),,install -m 644 $(DRTI32_OBJ) $(INSTLIBDIR)/dtrace/drti)
 	$(call describe-install-target,$(INSTLIBDIR)/dtrace/drti,drti-vers)
 	install -m 644 $(objdir)/dlibs/drti/drti-vers $(INSTLIBDIR)/dtrace/drti
-	for kernel in $(SHORTKERNELS); do \
+	for kernel in $$(cd $(objdir)/dlibs; echo [0-9]*); do \
 		$(call describe-expanded-install-target,$(INSTLIBDIR)/dtrace/$$kernel,$(WORKING_DLIBS)) \
 		mkdir -p $(INSTLIBDIR)/dtrace/$$kernel && \
 		cd $(objdir)/dlibs/$$kernel && install -m 644 $(WORKING_DLIBS) $(INSTLIBDIR)/dtrace/$$kernel; \

@@ -44,6 +44,7 @@ typedef struct dt_argdesc {
 typedef struct dt_provimpl {
 	const char *name;			/* provider generic name */
 	int prog_type;				/* BPF program type */
+	uint32_t stack_skip;			/* # of stack frames to skip */
 	int (*populate)(dtrace_hdl_t *dtp);	/* register probes */
 	int (*provide)(dtrace_hdl_t *dtp,	/* provide probes */
 		       const dtrace_probedesc_t *pdp);
@@ -53,6 +54,9 @@ typedef struct dt_provimpl {
 		       struct dt_probe *prp);
 	int (*trampoline)(dt_pcb_t *pcb,	/* generate BPF trampoline */
 			   uint_t exitlbl);
+	int (*load_prog)(dtrace_hdl_t *dtp, const struct dt_probe *prp,
+			 const dtrace_difo_t *dp, uint32_t lvl, char *buf,
+			 size_t sz);
 	int (*attach)(dtrace_hdl_t *dtp,	/* attach BPF prog to probe */
 		      const struct dt_probe *prp, int bpf_fd);
 	int (*probe_info)(dtrace_hdl_t *dtp,	/* get probe info */
@@ -69,7 +73,8 @@ typedef struct dt_provimpl {
 /* list dt_dtrace first */
 extern dt_provimpl_t dt_dtrace;
 extern dt_provimpl_t dt_cpc;
-extern dt_provimpl_t dt_fbt;
+extern dt_provimpl_t dt_fbt_fprobe;
+extern dt_provimpl_t dt_fbt_kprobe;
 extern dt_provimpl_t dt_io;
 extern dt_provimpl_t dt_ip;
 extern dt_provimpl_t dt_lockstat;

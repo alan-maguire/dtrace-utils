@@ -672,8 +672,14 @@ dt_compile(dtrace_hdl_t *dtp, int context, dtrace_probespec_t pspec, void *arg,
 	 * will longjmp back to pcb_jmpbuf to abort.  If parsing succeeds,
 	 * we optionally display the parse tree if debugging is enabled.
 	 */
-	if (yypcb->pcb_string)
+	if (yypcb->pcb_string) {
+		/*
+		 * We need to pop the buffer state that yyinit() created since
+		 * yy_scan_string() will replace it without freeing it.
+		 */
+		yypop_buffer_state();
 		strbuf = yy_scan_string(yypcb->pcb_string);
+	}
 	if (yyparse() != 0 || yypcb->pcb_root == NULL) {
 		if (yypcb->pcb_string)
 			yy_delete_buffer(strbuf);
@@ -1186,6 +1192,9 @@ dt_link_construct(dtrace_hdl_t *dtp, const dt_probe_t *prp, dtrace_difo_t *dp,
 				continue;
 			case DT_CONST_STACK_OFF:
 				nrp->dofr_data = DMEM_STACK(dtp);
+				continue;
+			case DT_CONST_STACK_SKIP:
+				nrp->dofr_data = prp->prov->impl->stack_skip;
 				continue;
 			default:
 				/* probe name -> value is probe id */

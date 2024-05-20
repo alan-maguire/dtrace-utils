@@ -644,7 +644,7 @@ static int attach(dtrace_hdl_t *dtp, const dt_probe_t *prp, int bpf_fd)
 	char		*prb = NULL;
 	int		rc = -1;
 
-	if (dt_tp_is_created(tpp))
+	if (dt_tp_has_info(tpp))
 		goto attach_bpf;
 
 	assert(upp->fn != NULL);
@@ -737,7 +737,7 @@ static void detach(dtrace_hdl_t *dtp, const dt_probe_t *prp)
 	dt_uprobe_t	*upp = prp->prv_data;
 	tp_probe_t	*tpp = upp->tp;
 
-	if (!dt_tp_is_created(tpp))
+	if (!dt_tp_has_info(tpp))
 		return;
 
 	dt_tp_detach(dtp, tpp);
@@ -752,6 +752,7 @@ dt_provimpl_t	dt_uprobe = {
 	.name		= prvname,
 	.prog_type	= BPF_PROG_TYPE_KPROBE,
 	.populate	= &populate,
+	.load_prog	= &dt_bpf_prog_load,
 	.trampoline	= &trampoline,
 	.attach		= &attach,
 	.probe_info	= &probe_info,
@@ -766,6 +767,7 @@ dt_provimpl_t	dt_uprobe_is_enabled = {
 	.name		= prvname_is_enabled,
 	.prog_type	= BPF_PROG_TYPE_KPROBE,
 	.populate	= &populate,
+	.load_prog	= &dt_bpf_prog_load,
 	.trampoline	= &trampoline_is_enabled,
 	.attach		= &attach,
 	.probe_info	= &probe_info,

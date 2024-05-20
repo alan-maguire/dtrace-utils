@@ -12,6 +12,7 @@
 #include <linux/bpf.h>
 #include <linux/perf_event.h>
 #include <dtrace/difo.h>
+#include <dt_btf.h>
 #include <dt_impl.h>
 
 struct dtrace_hdl;
@@ -19,6 +20,17 @@ struct dtrace_hdl;
 #ifdef	__cplusplus
 extern "C" {
 #endif
+
+/*
+ * BPF features.
+ */
+#define BPF_FEAT_FENTRY			0x1	/* fentry/fexit support */
+
+#define BPF_HAS(dtp, feat)	((dtp)->dt_bpffeatures & (feat))
+#define BPF_SET_FEATURE(dtp, feat) \
+				do { \
+					(dtp)->dt_bpffeatures |= (feat); \
+				} while (0)
 
 #define DT_CONST_EPID			1
 #define DT_CONST_PRID			2
@@ -43,6 +55,7 @@ extern "C" {
 #define DT_CONST_RODATA_SIZE		21
 #define DT_CONST_ZERO_OFF		22
 #define DT_CONST_STACK_OFF		23
+#define DT_CONST_STACK_SKIP		24
 
 #define DT_BPF_LOG_SIZE_DEFAULT	(UINT32_MAX >> 8)
 #define DT_BPF_LOG_SIZE_SMALL	4096
@@ -54,6 +67,9 @@ extern int dt_bpf(enum bpf_cmd cmd, union bpf_attr *attr);
 extern int dt_bpf_gmap_create(struct dtrace_hdl *);
 extern int dt_bpf_lockmem_error(struct dtrace_hdl *dtp, const char *msg);
 
+extern int dt_bpf_btf_get_info_by_fd(int fd, btf_info_t *info, uint32_t *size);
+extern int dt_bpf_btf_get_fd_by_id(uint32_t id);
+extern int dt_bpf_btf_get_next_id(uint32_t curr, uint32_t *next);
 extern int dt_bpf_map_lookup(int fd, const void *key, void *val);
 extern int dt_bpf_map_next_key(int fd, const void *key, void *nxt);
 extern int dt_bpf_map_update(int fd, const void *key, const void *val);
@@ -64,13 +80,18 @@ extern int dt_bpf_map_lookup_inner(int fd, const void *okey, const void *ikey,
 				   void *val);
 extern int dt_bpf_map_update_inner(int fd, const void *okey, const void *ikey,
 				   const void *val);
-extern int dt_bpf_prog_load(enum bpf_prog_type prog_type,
-			    const dtrace_difo_t *dp, uint32_t log_level,
-			    char *log_buf, size_t log_buf_sz);
+extern int dt_bpf_prog_attach(enum bpf_prog_type ptype,
+			      enum bpf_attach_type atype, int btf_fd,
+			      uint32_t btf_id, const dtrace_difo_t *dp,
+			      uint32_t log_level, char *log_buf,
+			      size_t log_buf_sz);
+extern int dt_bpf_prog_load(struct dtrace_hdl *, const struct dt_probe *prp,
+			    const dtrace_difo_t *dp, uint32_t lvl, char *buf,
+			    size_t sz);
 extern int dt_bpf_raw_tracepoint_open(const void *tp, int fd);
 extern int dt_bpf_make_progs(struct dtrace_hdl *, uint_t);
 extern int dt_bpf_load_progs(struct dtrace_hdl *, uint_t);
-extern void dt_bpf_init_helpers(struct dtrace_hdl *dtp);
+extern void dt_bpf_init(struct dtrace_hdl *dtp);
 
 #ifdef	__cplusplus
 }
