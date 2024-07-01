@@ -63,19 +63,19 @@ inline int BIO_USER_MAPPED = 6;
 
 /* bit mask in bi_rw */
 inline int REQ_WRITE = 0x01;
-define_for_kernel([[REQ_SYNC_VAL]], [[(m4_kver(4,10,0), [[0x800]])]], [[0x10]])
-inline int REQ_SYNC = REQ_SYNC_VAL;
 
-define_for_kernel([[__bi_rw]], [[(m4_kver(4,8,0), [[bi_opf]])]], [[bi_rw]])
-define_for_kernel([[__disk]], [[(m4_kver(5,12,0), [[bi_bdev->bd_disk]]), (m4_kver(4,14,0), [[bi_disk]])]], [[bi_bdev->bd_disk]])
-define_for_kernel([[__disk_chk]], [[(m4_kver(5,12,0), [[bi_bdev]]), (m4_kver(4,14,0), [[bi_disk]])]], [[bi_bdev]])
-define_for_kernel([[__bio_partno]], [[(m4_kver(6,10,0), [[bi_bdev->__bd_flags.counter & BD_PARTNO]]), (m4_kver(5,12,0), [[bi_bdev->bd_partno]]), (m4_kver(4,14,0), [[bi_partno]])]], [[bi_bdev->bd_part->partno]])
-define_for_kernel([[__bio_part_dev]], [[(m4_kver(5,12,0), [[bi_bdev->bd_dev]]), (m4_kver(5,11,0), [[bi_disk->part_tbl->part[B->bi_partno]->bd_dev]]), (m4_kver(4,14,0), [[bi_disk->part_tbl->part[B->bi_partno]->__dev.devt]])]], [[bi_bdev->bd_part->__dev.devt]])
+inline int REQ_SYNC = 0x800;
+
+
+
+
+
+
 
 #pragma D binding "1.6.3" translator
 translator bufinfo_t < struct bio *B > {
-	b_flags = ((int)B->__bi_rw & REQ_WRITE ? B_WRITE : B_READ) |
-		((int)B->__bi_rw & REQ_SYNC ? 0 : B_ASYNC) |
+	b_flags = ((int)B->bi_opf & REQ_WRITE ? B_WRITE : B_READ) |
+		((int)B->bi_opf & REQ_SYNC ? 0 : B_ASYNC) |
 		((int)B->bi_flags & (1 << BIO_USER_MAPPED) ? B_PAGEIO : B_PHYS);
 	b_addr = 0;
 	b_bcount = B->bi_iter.bi_size;
@@ -85,7 +85,7 @@ translator bufinfo_t < struct bio *B > {
 	b_bufsize = B->bi_iter.bi_size;
 	b_iodone = (caddr_t)B->bi_end_io;
 	b_error = 0;
-	b_edev = B->__disk_chk == NULL ? 0 : B->__bio_part_dev;
+	b_edev = B->bi_bdev == NULL ? 0 : B->bi_bdev->bd_dev;
 };
 
 typedef struct devinfo {
@@ -97,47 +97,47 @@ typedef struct devinfo {
 	string dev_pathname;		/* pathname of device */
 } devinfo_t;
 
-define_for_kernel([[__bh_bdev_dev]], [[(m4_kver(5,11,0), [[b_bdev->bd_disk->part0->bd_device]])]], [[b_bdev->bd_disk->part0.__dev]])
-define_for_kernel([[__bdev_partno]], [[(m4_kver(6,10,0), [[__bd_flags.counter & BD_PARTNO]]), (m4_kver(5,11,0), [[bd_partno]])]], [[bd_part->partno]])
+
+
 #pragma D binding "1.0" translator
 translator devinfo_t < struct buffer_head *B > {
 	dev_major = getmajor(B->b_bdev->bd_dev);
 	dev_minor = getminor(B->b_bdev->bd_dev);
 	dev_instance = 0;		/* not used? */
-	dev_name = B->__bh_bdev_dev.parent
-	    ? B->__bh_bdev_dev.parent->driver->name
-		? stringof(B->__bh_bdev_dev.parent->driver->name)
+	dev_name = B->b_bdev->bd_disk->part0->bd_device.parent
+	    ? B->b_bdev->bd_disk->part0->bd_device.parent->driver->name
+		? stringof(B->b_bdev->bd_disk->part0->bd_device.parent->driver->name)
 		: "<none>"
-	    : B->__bh_bdev_dev.driver->name
-		? stringof(B->__bh_bdev_dev.driver->name)
+	    : B->b_bdev->bd_disk->part0->bd_device.driver->name
+		? stringof(B->b_bdev->bd_disk->part0->bd_device.driver->name)
 		: "<none>";
-	dev_statname = B->b_bdev->__bdev_partno == 0
+	dev_statname = B->b_bdev->__bd_flags.counter & 255 == 0
 			? stringof(B->b_bdev->bd_disk->disk_name)
 			: strjoin(stringof(B->b_bdev->bd_disk->disk_name),
-				  lltostr(B->b_bdev->__bdev_partno));
+				  lltostr(B->b_bdev->__bd_flags.counter & 255));
 	dev_pathname = strjoin(
 			"/dev/",
-			B->b_bdev->__bdev_partno == 0
+			B->b_bdev->__bd_flags.counter & 255 == 0
 			    ? stringof(B->b_bdev->bd_disk->disk_name)
 			    : strjoin(stringof(B->b_bdev->bd_disk->disk_name),
-				      lltostr(B->b_bdev->__bdev_partno))
+				      lltostr(B->b_bdev->__bd_flags.counter & 255))
 		       );
 };
 
 #pragma D binding "1.6.3" translator
 translator devinfo_t < struct bio *B > {
-	dev_major = B->__disk_chk == NULL ? 0 : getmajor(B->__bio_part_dev);
-	dev_minor = B->__disk_chk == NULL ? 0 : getminor(B->__bio_part_dev);
+	dev_major = B->bi_bdev == NULL ? 0 : getmajor(B->bi_bdev->bd_dev);
+	dev_minor = B->bi_bdev == NULL ? 0 : getminor(B->bi_bdev->bd_dev);
 	dev_instance = 0;
-	dev_name = B->__disk_chk == NULL
+	dev_name = B->bi_bdev == NULL
 			? "nfs"
 			: stringof(((struct blk_major_name **)`major_names)[
-					getmajor(B->__bio_part_dev) % 255
+					getmajor(B->bi_bdev->bd_dev) % 255
 				   ]->name);
-	dev_statname = B->__disk_chk == NULL ? "nfs" :
-	    B->__bio_partno == 0 ? stringof(B->__disk->disk_name) :
-	    strjoin(stringof(B->__disk->disk_name), lltostr(B->__bio_partno));
-	dev_pathname = B->__disk_chk == NULL ? "<nfs>" : "<unknown>";
+	dev_statname = B->bi_bdev == NULL ? "nfs" :
+	    B->bi_bdev->__bd_flags.counter & 255 == 0 ? stringof(B->bi_bdev->bd_disk->disk_name) :
+	    strjoin(stringof(B->bi_bdev->bd_disk->disk_name), lltostr(B->bi_bdev->__bd_flags.counter & 255));
+	dev_pathname = B->bi_bdev == NULL ? "<nfs>" : "<unknown>";
 };
 
 typedef struct fileinfo {
@@ -161,25 +161,43 @@ translator fileinfo_t < struct buffer_head *B > {
 	fi_oflags = 0;
 };
 
-def_constant([[O_ACCMODE]],1.1)
-def_constant([[O_RDONLY]],1.1)
-def_constant([[O_WRONLY]],1.1)
-def_constant([[O_RDWR]],1.1)
-def_constant([[O_CREAT]],1.1)
-def_constant([[O_EXCL]],1.1)
-def_constant([[O_NOCTTY]],1.1)
-def_constant([[O_TRUNC]],1.1)
-def_constant([[O_APPEND]],1.1)
-def_constant([[O_NONBLOCK]],1.1)
-def_constant([[O_NDELAY]],1.1)
-def_constant([[O_SYNC]],1.1)
-def_constant([[O_FSYNC]],1.1)
-def_constant([[O_ASYNC]],1.1)
-def_constant([[O_DIRECTORY]],1.1)
-def_constant([[O_NOFOLLOW]],1.1)
-def_constant([[O_CLOEXEC]],1.1)
-def_constant([[O_DSYNC]],1.1)
-def_constant([[O_RSYNC]],1.1)
+inline int O_ACCMODE = 0003;
+#pragma D binding "1.1" O_ACCMODE
+inline int O_RDONLY = 00;
+#pragma D binding "1.1" O_RDONLY
+inline int O_WRONLY = 01;
+#pragma D binding "1.1" O_WRONLY
+inline int O_RDWR = 02;
+#pragma D binding "1.1" O_RDWR
+inline int O_CREAT = 00000100;
+#pragma D binding "1.1" O_CREAT
+inline int O_EXCL = 00000200;
+#pragma D binding "1.1" O_EXCL
+inline int O_NOCTTY = 00000400;
+#pragma D binding "1.1" O_NOCTTY
+inline int O_TRUNC = 00001000;
+#pragma D binding "1.1" O_TRUNC
+inline int O_APPEND = 00002000;
+#pragma D binding "1.1" O_APPEND
+inline int O_NONBLOCK = 00004000;
+#pragma D binding "1.1" O_NONBLOCK
+inline int O_NDELAY = 00004000;
+#pragma D binding "1.1" O_NDELAY
+inline int O_SYNC = (04000000|010000);
+#pragma D binding "1.1" O_SYNC
+
+inline int O_ASYNC = 020000;
+#pragma D binding "1.1" O_ASYNC
+inline int O_DIRECTORY = 040000;
+#pragma D binding "1.1" O_DIRECTORY
+inline int O_NOFOLLOW = 0100000;
+#pragma D binding "1.1" O_NOFOLLOW
+inline int O_CLOEXEC = 02000000;
+#pragma D binding "1.1" O_CLOEXEC
+inline int O_DSYNC = 010000;
+#pragma D binding "1.1" O_DSYNC
+inline int O_RSYNC = (04000000|010000);
+#pragma D binding "1.1" O_RSYNC
 
 #pragma D binding "1.1" translator
 translator fileinfo_t < struct file *F > {
