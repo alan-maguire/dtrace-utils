@@ -679,6 +679,14 @@ Pwait_internal(struct ps_prochandle *P, boolean_t block, int *return_early)
 	if (P->state == PS_DEAD)
 		return 0;
 
+	/*
+	 * If a noninvasively traced process gets Pwait()ed on (which is
+	 * routine, its use is pervasive), don't wait: we'll only get an ECHILD,
+	 * which will spuriously cause us to conclude that the process is dead.
+	 */
+	if (P->noninvasive)
+		return 0;
+
 	do {
 		errno = 0;
 
@@ -1340,7 +1348,7 @@ Ptrace(struct ps_prochandle *P, int stopped)
 			return 0;
 
 		if (P->state == PS_DEAD)
-			return PS_DEAD;
+			return -ECHILD;
 
 		listen_interrupt = P->listening;
 		P->ptrace_halted = TRUE;
@@ -1399,7 +1407,7 @@ Ptrace(struct ps_prochandle *P, int stopped)
 
 	return err;
 err:
-	err = errno;
+	err = -errno;
 err2:
 	/*
 	 * Note a subtlety here: the Ptrace_count may have been reduced, and the state
@@ -2827,6 +2835,23 @@ Ptracer_pid(pid_t pid)
 	tracer_pid = strtol(traced, NULL, 10);
 	free(traced);
 	return tracer_pid;
+}
+
+/*
+ * Get the thread-group ID of the given task (comparable to getpid().
+ */
+pid_t
+Ptgid(pid_t pid)
+{
+	char *txt;
+	pid_t tgid;
+
+	if ((txt = Pget_proc_status(pid, "Tgid")) == NULL)
+		return 0;
+
+	tgid = strtol(txt, NULL, 10);
+	free(txt);
+	return tgid;
 }
 
 /*
