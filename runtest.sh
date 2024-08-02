@@ -18,10 +18,9 @@ shopt -s nullglob extglob
 unset CDPATH
 unset POSIXLY_CORRECT  # Interferes with 'wait'
 export LC_COLLATE="C"
+export dtrace="/usr/sbin/dtrace"
 
 arch="$(uname -m)"
-
-[[ -f ./runtest.conf ]] && . ./runtest.conf
 
 load_modules()
 {
@@ -576,18 +575,26 @@ if [[ -z $USE_INSTALLED ]]; then
     export dtprobed_pid=$!
     ZAPTHESE+=($dtprobed_pid)
 else
-    dtrace="/usr/sbin/dtrace"
+    # If we don't have a pkg-config path, try to point at a plausible
+    # one given DTrace's default install paths.  This will fail if
+    # the pkg-config path is changed as well: in that case, presumably
+    # the person changing that path has pointed pkg-config at it anyway.
+    if [[ -z $PKG_CONFIG_PATH ]]; then
+        export PKG_CONFIG_PATH="$(pwd)/../../../share/pkgconfig"
+    fi
+
+    dtrace="$(pkg-config --variable=dtrace dtrace)"
     test_libdir="installed"
     test_ldflags=""
-    test_cppflags="-DARCH_$arch -I/usr/lib64/dtrace/include"
+    test_cppflags="-DARCH_$arch $(pkg-config --cflags dtrace_sdt) $(pkg-config --cflags dtrace)"
 
     if [[ ! -x $dtrace ]]; then
         echo "$dtrace not available." >&2
         exit 1
     fi
 fi
-export dtrace
 export test_cppflags
+export test_libdir
 
 # Figure out if the preprocessor supports -fno-diagnostics-show-option: if it
 # does, add a bunch of options designed to make GCC output look like it used
@@ -644,15 +651,6 @@ if [[ -n $NOBADDOF ]]; then
                  --quiet -o $logdir/coverage/initial.lcov 2>/dev/null
         fi
     done
-
-    if [[ -n $KERNEL_BUILD_DIR ]] && [[ -d $KERNEL_BUILD_DIR ]] &&
-       [[ -d /sys/kernel/debug/gcov/$KERNEL_BUILD_DIR/kernel/dtrace ]]; then
-            rm -rf $KERNEL_BUILD_DIR/coverage
-            mkdir -p $KERNEL_BUILD_DIR/coverage
-            lcov --zerocounters --quiet
-            lcov --capture --base-directory $KERNEL_BUILD_DIR --initial \
-                 --quiet -o $KERNEL_BUILD_DIR/coverage/initial.lcov 2>/dev/null
-    fi
 fi
 
 load_modules
@@ -1592,23 +1590,6 @@ for name in build*; do
             tee -a $LOGFILE $SUMFILE
     fi
 done
-
-if [[ -n $KERNEL_BUILD_DIR ]] && [[ -d $KERNEL_BUILD_DIR ]] &&
-       [[ -d /sys/kernel/debug/gcov/$KERNEL_BUILD_DIR/kernel/dtrace ]]; then
-    force_out "Coverage info for kernel:\n"
-
-    lcov --capture --base-directory $KERNEL_BUILD_DIR \
-         --quiet -o $KERNEL_BUILD_DIR/coverage/coverage.lcov
-    lcov --add-tracefile $KERNEL_BUILD_DIR/coverage/initial.lcov \
-         --add-tracefile $KERNEL_BUILD_DIR/coverage/coverage.lcov \
-         --quiet -o $KERNEL_BUILD_DIR/coverage/coverage.lcov
-
-    genhtml --frames --show-details -o $KERNEL_BUILD_DIR/coverage \
-            --title "DTrace kernel coverage" --highlight --legend \
-            $KERNEL_BUILD_DIR/coverage/coverage.lcov | \
-        awk 'BEGIN { quiet=1; } { if (!quiet) { print ($0); } } /^Overall coverage rate:$/ { quiet=0; }' | \
-        tee -a $LOGFILE $SUMFILE
-fi
 
 if [[ -n $ERRORS ]]; then
     exit 1

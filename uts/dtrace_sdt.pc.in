@@ -1,0 +1,7 @@
+sdtincludedir = @SDTINCLUDEDIR@
+dtrace = @DTRACE@
+
+Name: DTrace SDT
+Description: DTrace raw SDT headers
+Version: @VERSION@
+Cflags: -I${sdtincludedir}

@@ -1,0 +1,9 @@
+includedir = @INCLUDEDIR@
+libdir = @LIBDIR@
+dtrace = @DTRACE@
+
+Name: DTrace
+Description: DTrace consumer headers
+Version: @VERSION@
+Cflags: -I${includedir}
+Libs: -L${libdir} -ldtrace
