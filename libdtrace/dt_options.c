@@ -20,6 +20,7 @@
 #include <ctype.h>
 
 #include <dt_impl.h>
+#include <dt_aggregate.h>
 #include <dt_pcap.h>
 #include <dt_string.h>
 #include <libproc.h>
@@ -27,12 +28,11 @@
 static int
 dt_opt_agg(dtrace_hdl_t *dtp, const char *arg, uintptr_t option)
 {
-	dt_aggregate_t *agp = &dtp->dt_aggregate;
-
 	if (arg != NULL)
 		return dt_set_errno(dtp, EDT_BADOPTVAL);
 
-	agp->dtat_flags |= option;
+	dt_aggregate_set_option(dtp, option);
+
 	return 0;
 }
 
@@ -1026,67 +1026,6 @@ dt_opt_bufresize(dtrace_hdl_t *dtp, const char *arg, uintptr_t option)
 		return dt_set_errno(dtp, EDT_BADOPTVAL);
 
 	dtp->dt_options[DTRACEOPT_BUFRESIZE] = policy;
-
-	return 0;
-}
-
-int
-dt_options_load(dtrace_hdl_t *dtp)
-{
-#ifdef FIXME
-	dof_hdr_t hdr, *dof;
-	dof_sec_t *sec = NULL;  /* gcc -Wmaybe-uninitialized */
-	size_t offs;
-	int i;
-
-	/*
-	 * To load the option values, we need to ask the kernel to provide its
-	 * DOF, which we'll sift through to look for OPTDESC sections.
-	 */
-	memset(&hdr, 0, sizeof(dof_hdr_t));
-	hdr.dofh_loadsz = sizeof(dof_hdr_t);
-
-	if (dt_ioctl(dtp, DTRACEIOC_DOFGET, &hdr) == -1)
-		return dt_set_errno(dtp, errno);
-
-	if (hdr.dofh_loadsz < sizeof(dof_hdr_t))
-		return dt_set_errno(dtp, EINVAL);
-
-	dof = alloca(hdr.dofh_loadsz);
-	memset(dof, 0, sizeof(dof_hdr_t));
-	dof->dofh_loadsz = hdr.dofh_loadsz;
-
-	for (i = 0; i < DTRACEOPT_MAX; i++)
-		dtp->dt_options[i] = DTRACEOPT_UNSET;
-
-	if (dt_ioctl(dtp, DTRACEIOC_DOFGET, dof) == -1)
-		return dt_set_errno(dtp, errno);
-
-	/* FIXME: can we get a zero-section DOF back? */
-
-	for (i = 0; i < dof->dofh_secnum; i++) {
-		sec = (dof_sec_t *)(uintptr_t)((uintptr_t)dof +
-		    dof->dofh_secoff + i * dof->dofh_secsize);
-
-		if (sec->dofs_type != DOF_SECT_OPTDESC)
-			continue;
-
-		break;
-	}
-
-	for (offs = 0; offs < sec->dofs_size; offs += sec->dofs_entsize) {
-		dof_optdesc_t *opt = (dof_optdesc_t *)(uintptr_t)
-		    ((uintptr_t)dof + sec->dofs_offset + offs);
-
-		if (opt->dofo_strtab != DOF_SECIDX_NONE)
-			continue;
-
-		if (opt->dofo_option >= DTRACEOPT_MAX)
-			continue;
-
-		dtp->dt_options[opt->dofo_option] = opt->dofo_value;
-	}
-#endif
 
 	return 0;
 }

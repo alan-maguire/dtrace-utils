@@ -187,131 +187,6 @@ dt_probe_key(const dtrace_probedesc_t *pdp, char *s)
 }
 
 /*
- * If a probe was discovered from the kernel, ask dtrace(7D) for a description
- * of each of its arguments, including native and translated types.
- */
-static dt_probe_t *
-dt_probe_discover(dt_provider_t *pvp, const dtrace_probedesc_t *pdp)
-{
-#ifdef FIXME
-	dtrace_hdl_t *dtp = pvp->pv_hdl;
-	char *name = dt_probe_key(pdp, alloca(dt_probe_keylen(pdp)));
-
-	dt_node_t *xargs, *nargs;
-	dt_ident_t *idp;
-	dt_probe_t *prp;
-
-	dtrace_typeinfo_t dtt;
-	int i, nc, xc;
-
-	int adc = _dtrace_argmax;
-	dt_argdesc_t *adv = alloca(sizeof(dt_argdesc_t) * adc);
-	dt_argdesc_t *adp = adv;
-
-	assert(strcmp(pvp->desc.dtvd_name, pdp->prv) == 0);
-	assert(pdp->id != DTRACE_IDNONE);
-
-	dt_dprintf("discovering probe %s:%s id=%d\n",
-		   pvp->desc.dtvd_name, name, pdp->id);
-
-	for (nc = -1, i = 0; i < adc; i++, adp++) {
-		memset(adp, 0, sizeof(dt_argdesc_t));
-		adp->ndx = i;
-		adp->id = pdp->id;
-
-		if (dt_ioctl(dtp, DTRACEIOC_PROBEARG, adp) != 0) {
-			dt_set_errno(dtp, errno);
-			return NULL;
-		}
-
-		if (adp->ndx == DTRACE_ARGNONE)
-			break; /* all argument descs have been retrieved */
-
-		nc = MAX(nc, adp->mapping);
-	}
-
-	xc = i;
-	nc++;
-
-	/*
-	 * Now that we have discovered the number of native and translated
-	 * arguments from the argument descriptions, allocate a new probe ident
-	 * and corresponding dt_probe_t and hash it into the provider.
-	 */
-	xargs = dt_probe_alloc_args(pvp, xc);
-	nargs = dt_probe_alloc_args(pvp, nc);
-
-	if ((xc != 0 && xargs == NULL) || (nc != 0 && nargs == NULL))
-		return NULL; /* dt_errno is set for us */
-
-	idp = dt_ident_create(name, DT_IDENT_PROBE, DT_IDFLG_ORPHAN, pdp->id,
-			      _dtrace_defattr, 0, &dt_idops_probe, NULL,
-			      dtp->dt_gen);
-
-	if (idp == NULL) {
-		dt_set_errno(dtp, EDT_NOMEM);
-		return NULL;
-	}
-
-	prp = dt_probe_create(dtp, idp, 2, nargs, nc, xargs, xc);
-	if (prp == NULL) {
-		dt_ident_destroy(idp);
-		return NULL;
-	}
-
-	dt_probe_declare(pvp, prp);
-
-	/*
-	 * Once our new dt_probe_t is fully constructed, iterate over the
-	 * cached argument descriptions and assign types to prp->nargv[]
-	 * and prp->xargv[] and assign mappings to prp->mapping[].
-	 */
-	for (adp = adv, i = 0; i < xc; i++, adp++) {
-		if (dtrace_type_strcompile(dtp,
-		    adp->native, &dtt) != 0) {
-			dt_dprintf("failed to resolve input type %s "
-			    "for %s:%s arg #%d: %s\n", adp->native,
-			    pvp->desc.dtvd_name, name, i + 1,
-			    dtrace_errmsg(dtp, dtrace_errno(dtp)));
-
-			dtt.dtt_object = NULL;
-			dtt.dtt_ctfp = NULL;
-			dtt.dtt_type = CTF_ERR;
-		} else {
-			dt_node_type_assign(prp->nargv[adp->mapping],
-			    dtt.dtt_ctfp, dtt.dtt_type);
-		}
-
-		if (dtt.dtt_type != CTF_ERR && (adp->xlate[0] == '\0' ||
-		    strcmp(adp->native, adp->xlate) == 0)) {
-			dt_node_type_propagate(prp->nargv[
-			    adp->mapping], prp->xargv[i]);
-		} else if (dtrace_type_strcompile(dtp,
-		    adp->xlate, &dtt) != 0) {
-			dt_dprintf("failed to resolve output type %s "
-			    "for %s:%s arg #%d: %s\n", adp->xlate,
-			    pvp->desc.dtvd_name, name, i + 1,
-			    dtrace_errmsg(dtp, dtrace_errno(dtp)));
-
-			dtt.dtt_object = NULL;
-			dtt.dtt_ctfp = NULL;
-			dtt.dtt_type = CTF_ERR;
-		} else {
-			dt_node_type_assign(prp->xargv[i],
-			    dtt.dtt_ctfp, dtt.dtt_type);
-		}
-
-		prp->mapping[i] = adp->mapping;
-		prp->argv[i] = dtt;
-	}
-
-	return prp;
-#else
-	return NULL;
-#endif
-}
-
-/*
  * Lookup a probe declaration based on a known provider and full or partially
  * specified module, function, and name.  If the probe is not known to us yet,
  * ask dtrace(7D) to match the description and then cache any useful results.
@@ -338,13 +213,6 @@ dt_probe_lookup2(dt_provider_t *pvp, const char *s)
 	 */
 	if ((idp = dt_idhash_lookup(pvp->pv_probes, key)) != NULL)
 		return idp->di_data;
-
-	/*
-	 * If the probe isn't known, use the probe description computed above
-	 * to ask dtrace(7D) to find the first matching probe.
-	 */
-	if (dt_ioctl(dtp, DTRACEIOC_PROBEMATCH, &pd) == 0)
-		return dt_probe_discover(pvp, &pd);
 
 	if (errno == ESRCH || errno == EBADF)
 		dt_set_errno(dtp, EDT_NOPROBE);
@@ -838,7 +706,7 @@ dt_probe_lookup(dtrace_hdl_t *dtp, const dtrace_probedesc_t *pdp)
 		 * To avoid checking multiple times whether an element in the
 		 * probe specification is a glob pattern, we (ab)use the
 		 * desc->id value (unused at this point) to store this
-		 * information a a bitmap.
+		 * information as a bitmap.
 		 */
 		desc = *pdp;
 		desc.id = (p_is_glob << 3) | (m_is_glob << 2) |
@@ -886,17 +754,15 @@ dt_probe_args_info(dtrace_hdl_t *dtp, dt_probe_t *prp)
 {
 	int			argc = 0;
 	dt_argdesc_t		*argv = NULL;
-	int			rc, i, nc, xc;
+	int			i, nc, xc;
 	dtrace_typeinfo_t	dtt;
 
 	/* Only retrieve probe argument information once per probe. */
 	if (prp->argc != -1)
 		return 0;
-	if (!prp->prov->impl->probe_info)
-		return 0;
-	rc = prp->prov->impl->probe_info(dtp, prp, &argc, &argv);
-	if (rc == -1)
-		return rc;
+	if (prp->prov->impl->probe_info &&
+	    prp->prov->impl->probe_info(dtp, prp, &argc, &argv) == -1)
+		return -1;
 
 	if (!argc || !argv) {
 		prp->argc = 0;
@@ -1345,7 +1211,7 @@ dt_probe_add_clause(dtrace_hdl_t *dtp, dt_probe_t *prp, dt_ident_t *idp)
 {
 	dt_probe_clause_t	*pcp;
 
-	pcp = dt_zalloc(dtp, sizeof(dt_probe_clause_t));;
+	pcp = dt_zalloc(dtp, sizeof(dt_probe_clause_t));
 	if (pcp == NULL)
 		return dt_set_errno(dtp, EDT_NOMEM);
 
@@ -1395,7 +1261,7 @@ dt_probe_add_dependent(dtrace_hdl_t *dtp, dt_probe_t *prp, dt_probe_t *dprp)
 			return 0;
 	}
 
-	pdp = dt_zalloc(dtp, sizeof(dt_probe_dependent_t));;
+	pdp = dt_zalloc(dtp, sizeof(dt_probe_dependent_t));
 	if (pdp == NULL)
 		return dt_set_errno(dtp, EDT_NOMEM);
 

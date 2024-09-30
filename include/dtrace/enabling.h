@@ -2,7 +2,7 @@
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * http://oss.oracle.com/licenses/upl.
  *
- * Copyright (c) 2009, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2024, Oracle and/or its affiliates. All rights reserved.
  */
 
 /*
@@ -15,7 +15,6 @@
 
 #include <dtrace/universal.h>
 #include <dtrace/difo_defines.h>
-#include <dtrace/enabling_defines.h>
 
 /*
  * FIXME: Needs to be rewritten.
@@ -44,11 +43,6 @@ typedef struct dtrace_probedesc {
 	const char	*prb;			/* probe name */
 } dtrace_probedesc_t;
 
-typedef struct dtrace_repldesc {
-	dtrace_probedesc_t dtrpd_match;		/* probe descr. to match */
-	dtrace_probedesc_t dtrpd_create;	/* probe descr. to create */
-} dtrace_repldesc_t;
-
 typedef struct dtrace_actdesc {
 	struct dtrace_difo *dtad_difo;		/* pointer to DIF object */
 	dtrace_actkind_t dtad_kind;		/* kind of action */
@@ -59,7 +53,6 @@ typedef struct dtrace_actdesc {
 
 typedef struct dtrace_ecbdesc {
 	dtrace_probedesc_t dted_probe;		/* probe description */
-	uint64_t dted_uarg;			/* library argument */
 	int dted_refcnt;			/* reference count */
 } dtrace_ecbdesc_t;
 

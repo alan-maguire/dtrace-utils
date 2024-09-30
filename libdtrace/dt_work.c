@@ -5,12 +5,6 @@
  * http://oss.oracle.com/licenses/upl.
  */
 
-#include <dt_impl.h>
-#include <dt_peb.h>
-#include <dt_probe.h>
-#include <dt_bpf.h>
-#include <dt_bpf_maps.h>
-#include <dt_state.h>
 #include <stddef.h>
 #include <errno.h>
 #include <assert.h>
@@ -20,6 +14,13 @@
 #include <linux/perf_event.h>
 #include <sys/epoll.h>
 #include <valgrind/valgrind.h>
+#include <dt_impl.h>
+#include <dt_aggregate.h>
+#include <dt_peb.h>
+#include <dt_probe.h>
+#include <dt_bpf.h>
+#include <dt_bpf_maps.h>
+#include <dt_state.h>
 
 void
 BEGIN_probe(void)
@@ -317,11 +318,6 @@ dtrace_go(dtrace_hdl_t *dtp, uint_t cflags)
 	 */
 	if (dt_state_get_activity(dtp) == DT_ACTIVITY_STOPPED)
 		dt_state_set_activity(dtp, DT_ACTIVITY_DRAINING);
-
-#if 0
-	if (dt_options_load(dtp) == -1)
-		return dt_set_errno(dtp, errno);
-#endif
 
 	return 0;
 }

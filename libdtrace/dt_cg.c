@@ -16,6 +16,7 @@
 #include <linux/if_arp.h>		/* ARPHRD_ETHER ARPHRD_INFINIBAND */
 
 #include <dt_impl.h>
+#include <dt_aggregate.h>
 #include <dt_dis.h>
 #include <dt_dctx.h>
 #include <dt_cg.h>
@@ -370,17 +371,6 @@ dt_cg_tramp_prologue_act(dt_pcb_t *pcb, dt_activity_t act)
 	 *				// call bpf_map_lookup_elem
 	 *				//     (%r1 ... %r5 clobbered)
 	 *				//     (%r0 = 'aggs' BPF map value)
-	 *	if (rc == 0)		// jeq %r0, 0, lbl_exit
-	 *		goto exit;
-	 *
-	 *	key = 0;		// stdw [%r9 + DCTX_AGG], 0
-	 *	rc = bpf_map_lookup_elem(rc, &key);
-	 *				// mov %r1, %r0
-	 *				// mov %r2, %r9
-	 *				// add %r2, DCTX_AGG
-	 *				// call bpf_map_lookup_elem
-	 *				//     (%r1 ... %r5 clobbered)
-	 *				//     (%r0 = aggs[cpuid] BPF map value)
 	 *	if (rc == 0)		// jeq %r0, 0, lbl_exit
 	 *		goto exit;
 	 *
@@ -828,7 +818,7 @@ dt_cg_tramp_save_args(dt_pcb_t *pcb)
 
 	for (i = 0; i < ARRAY_SIZE(((dt_mstate_t *)0)->argv); i++) {
 		emit(dlp, BPF_LOAD(BPF_DW, BPF_REG_0, BPF_REG_7, DMST_ARG(i)));
-		emit(dlp, BPF_STORE(BPF_DW, BPF_REG_7, DMST_SAVED_ARG(i), BPF_REG_0));
+		emit(dlp, BPF_STORE(BPF_DW, BPF_REG_7, DMST_ORIG_ARG(i), BPF_REG_0));
 	}
 }
 
@@ -842,7 +832,7 @@ dt_cg_tramp_restore_args(dt_pcb_t *pcb)
 	int		i;
 
 	for (i = 0; i < ARRAY_SIZE(((dt_mstate_t *)0)->argv); i++) {
-		emit(dlp, BPF_LOAD(BPF_DW, BPF_REG_0, BPF_REG_7, DMST_SAVED_ARG(i)));
+		emit(dlp, BPF_LOAD(BPF_DW, BPF_REG_0, BPF_REG_7, DMST_ORIG_ARG(i)));
 		emit(dlp, BPF_STORE(BPF_DW, BPF_REG_7, DMST_ARG(i), BPF_REG_0));
 	}
 }
@@ -963,14 +953,14 @@ dt_cg_tramp_epilogue(dt_pcb_t *pcb)
 
 	/*
 	 * For each dependent probe (if any):
-	 *	1.1 Call dt_cg_tramp_save_args()
-	 *	1.2 Set PRID to the probe ID of the dependent probe
-	 *	1.3 Call prp->prov->impl->trampoline()
+	 *	- Call dt_cg_tramp_save_args()
+	 *	- Set PRID to the probe ID of the dependent probe
+	 *	- Call prp->prov->impl->trampoline()
 	 *		[ This will generate the pseudo-trampoline that sets
 	 *		  up the arguments for the dependent probe, possibly
 	 *		  based on the arguments of the underllying probe. ]
-	 *	1.4 Call dt_cg_tramp_call_clauses() for the dependent probe
-	 *	1.1 Call dt_cg_tramp_restore_args()
+	 *	- Call dt_cg_tramp_call_clauses() for the dependent probe
+	 *	- Call dt_cg_tramp_restore_args()
 	 *
 	 * Possible optimization:
 	 *	Do not call dt_cg_tramp_restore_args() after the last dependent
@@ -1056,11 +1046,11 @@ dt_cg_tramp_error(dt_pcb_t *pcb)
  *
  * The prologue will:
  *
- *	1. Store the base pointer to the output data buffer in %r9.
- *	2. Initialize the machine state (dctx->mst).
- *	3. Store the epid at [%r9 + 0].
- *	4. Store 0 to indicate no active speculation at [%r9 + 4].
- *	5. Evaluate the predicate expression and return if false.
+ *	- Store the base pointer to the output data buffer in %r9.
+ *	- Initialize the machine state (dctx->mst).
+ *	- Store the epid at [%r9 + DBUF_EPID].
+ *	- Store 0 to indicate no active speculation at [%r9 + DBUF_SPECID].
+ *	- Evaluate the predicate expression and return if false.
  *
  * The dt_program() function will always return 0.
  */
@@ -1151,9 +1141,9 @@ dt_cg_prologue(dt_pcb_t *pcb, dt_node_t *pred)
 
 /*
  * Generate the function epilogue:
- *	4. Submit the buffer to the perf event output buffer for the current
- *	   cpu, if this is a data recording action..
- *	5. Return 0
+ *	- Submit the buffer to the perf event output buffer for the current
+ *	  cpu, if this is a data recording action..
+ *	- Return 0
  * }
  */
 static void
@@ -1742,7 +1732,7 @@ ok:
 
 		/*
 		 * if (*((uint32_t *)&buf[DBUF_SPECID]) != 0) {
-		 *     if (dctx->dmst->specsize + off + size >
+		 *     if (dctx->mst->specsize + off + size >
 		 *	   dtp->dt_options[DTRACEOPT_SPECSIZE]) {
 		 *	   state[DT_STATE_SPEC_DROPS]++;
 		 *
@@ -2464,7 +2454,7 @@ dt_cg_act_setopt(dt_pcb_t *pcb, dt_node_t *dnp, dtrace_actkind_t kind)
  * back pending a commit() or discard() for the speculation with the given id.
  *
  * Updates the specid in the output buffer header, rather than emitting a new
- * record into it.  The dctx->dmst->specsize value is initialized with the size
+ * record into it.  The dctx->mst->specsize value is initialized with the size
  * of the data thus far recorded for this speculation.
  */
 static void
@@ -2494,7 +2484,7 @@ dt_cg_act_speculate(dt_pcb_t *pcb, dt_node_t *dnp, dtrace_actkind_t kind)
 	 *		goto exit;
 	 *	*((uint32_t *)&buf[DBUF_SPECID]) = specid;
 	 *				// mov [%r9 + DBUF_SPECID], %dn_reg
-	 *	dctx->dmst->specsize = spec->size;
+	 *	dctx->mst->specsize = spec->size;
 	 *	exit:			// nop
 	 */
 
@@ -6568,7 +6558,7 @@ dt_cg_subr_inet_ntop(dt_node_t *dnp, dt_irlist_t *dlp, dt_regset_t *drp)
 {
 	dt_node_t	*af = dnp->dn_args;
 	dt_node_t	*addr = af->dn_list;
-	dt_node_t	*tnp, *cnp, *lnp, *rnp, *anp, *xnp;;
+	dt_node_t	*tnp, *cnp, *lnp, *rnp, *anp, *xnp;
 	dt_idsig_t	*isp;
 	dt_decl_t	*ddp;
 
@@ -8296,7 +8286,7 @@ dt_cg_agg_stddev(dt_pcb_t *pcb, dt_ident_t *aid, dt_node_t *dnp,
 	/* Add low value part from mid to lowreg */
 	emit(dlp,  BPF_ALU64_REG(BPF_ADD, lowreg, lmdreg));
 	/* Handle the overflow/carry case */
-	emit(dlp,  BPF_BRANCH_REG(BPF_JLT, lmdreg, lowreg, Lncy));
+	emit(dlp,  BPF_BRANCH_REG(BPF_JLE, lmdreg, lowreg, Lncy));
 	emit(dlp,  BPF_ALU64_IMM(BPF_ADD, hi_reg, 1)) /* account for carry */;
 
 	/* Sum high value; no overflow expected nor accounted for */

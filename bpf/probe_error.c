@@ -26,7 +26,9 @@ noinline void dt_probe_error(const dt_dctx_t *dctx, uint64_t pc, uint64_t fault,
 			     uint64_t illval)
 {
 	dt_mstate_t	*mst = dctx->mst;
+	int		oldprid = mst->prid;
 
+	__builtin_memcpy(mst->saved_argv, mst->argv, sizeof(mst->saved_argv));
 	mst->argv[0] = 0;
 	mst->argv[1] = mst->epid;
 	mst->argv[2] = mst->clid;
@@ -34,7 +36,10 @@ noinline void dt_probe_error(const dt_dctx_t *dctx, uint64_t pc, uint64_t fault,
 	mst->argv[4] = fault;
 	mst->argv[5] = illval;
 
+	mst->prid = DTRACE_ERROR_ID;
 	dt_error(dctx);
+	mst->prid = oldprid;
 
+	__builtin_memcpy(mst->argv, mst->saved_argv, sizeof(mst->saved_argv));
 	mst->fault = fault;
 }

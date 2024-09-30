@@ -83,6 +83,7 @@ extern "C" {
 #define DT_NULL_STRING ((uint16_t)0x7f00)
 #endif
 
+struct dt_aggregate;		/* see <dt_aggregate.h> */
 struct dt_module;		/* see below */
 struct dt_pfdict;		/* see <dt_printf.h> */
 struct dt_arg;			/* see below */
@@ -197,24 +198,6 @@ typedef struct dt_kern_path {
 #define DT_DM_CTF_ARCHIVED	0x4	/* module found in a CTF archive */
 #define DT_DM_KERN_UNLOADED	0x8	/* module not loaded into the kernel */
 
-typedef struct dt_ahashent {
-	struct dt_ahashent *dtahe_prev;		/* prev on hash chain */
-	struct dt_ahashent *dtahe_next;		/* next on hash chain */
-	struct dt_ahashent *dtahe_prevall;	/* prev on list of all */
-	struct dt_ahashent *dtahe_nextall;	/* next on list of all */
-	uint64_t dtahe_hval;			/* hash value */
-	dtrace_aggdata_t dtahe_data;		/* data */
-} dt_ahashent_t;
-
-typedef struct dt_ahash {
-	dt_ahashent_t	**dtah_hash;		/* hash table */
-	dt_ahashent_t	*dtah_all;		/* list of all elements */
-	size_t		dtah_size;		/* size of hash table */
-} dt_ahash_t;
-
-#define DT_AGGDATA_COUNTER	0
-#define DT_AGGDATA_RECORD	1
-
 /*
  * Why do we need (only) 4 slots?  The maximum amount of string arguments to
  * any function is 2, and if the result is a string as well, that means we may
@@ -245,14 +228,6 @@ typedef struct dt_tstring {
 	int		in_use;			/* In use (1) or not (0) */
 } dt_tstring_t;
 
-typedef struct dt_aggregate {
-	char *dtat_key;			/* aggregation key */
-	char *dtat_buf;			/* aggregation data buffer */
-	char *dtat_nextkey;		/* next aggregation key */
-	int dtat_flags;			/* aggregate flags */
-	dt_ahash_t dtat_hash;		/* aggregate hash table */
-} dt_aggregate_t;
-
 typedef struct dt_dirpath {
 	dt_list_t dir_list;		/* linked-list forward/back pointers */
 	char *dir_path;			/* directory pathname */
@@ -268,24 +243,6 @@ typedef struct dt_lib_depend {
 	dt_list_t dtld_dependencies;	/* linked-list of lib dependencies */
 	dt_list_t dtld_dependents;	/* linked-list of lib dependents */
 } dt_lib_depend_t;
-
-typedef struct dt_spec_buf_data {
-	dt_list_t dsbd_list;		/* linked-list forward/back pointers */
-	unsigned int dsbd_cpu;		/* cpu for data */
-	char *dsbd_data;		/* data for later processing */
-	uint32_t dsbd_size;		/* size of data */
-} dt_spec_buf_data_t;
-
-typedef struct dt_spec_buf {
-	dtrace_hdl_t *dtsb_dtp;		/* backpointer to the dtrace instance */
-	int32_t dtsb_id;		/* speculation ID */
-	size_t dtsb_size;		/* size of all buffers in this spec */
-	int dtsb_committing;		/* when draining, nonzero if commit */
-	dt_bpf_specs_t dtsb_spec;	/* bpf-side specs record for this spec
-					   (buffer read/write counts).  */
-	dt_list_t dtsb_dsbd_list;	/* list of dt_spec_bufs */
-	struct dt_hentry dtsb_he;	/* htab links */
-} dt_spec_buf_t;
 
 typedef struct dt_percpu_drops {
 	uint64_t	buf;		/* principal buffer drops */
@@ -367,7 +324,6 @@ struct dtrace_hdl {
 
 	dt_htab_t *dt_provs;	/* hash table of dt_provider_t's */
 	const struct dt_provider *dt_prov_pid; /* PID provider */
-	const struct dt_provider *dt_prov_usdt; /* USDT provider */
 	int dt_proc_signal;	/* signal used to interrupt monitoring threads */
 	struct sigaction dt_proc_oact;
 	dt_proc_hash_t *dt_procs; /* hash table of grabbed process handles */
@@ -386,8 +342,7 @@ struct dtrace_hdl {
 	dtrace_probedesc_t **dt_pdesc; /* probe descriptions for enabled prbs */
 	size_t dt_maxagg;	/* max aggregation ID */
 	dtrace_aggdesc_t **dt_adesc; /* aggregation descriptions */
-	int dt_maxformat;	/* max format ID */
-	dt_aggregate_t dt_aggregate; /* aggregate */
+	struct dt_aggregate *dt_aggregate; /* aggregate */
 	struct dt_pebset *dt_pebset; /* perf event buffers set */
 	struct dt_pfdict *dt_pfdict; /* dictionary of printf conversions */
 	dt_version_t dt_vmax;	/* optional ceiling on program API binding */
@@ -594,28 +549,6 @@ struct dtrace_hdl {
 #define DT_ACT_MAX		31
 
 /*
- * Aggregation functions.
- */
-#define	DT_AGG_BASE		DTRACEACT_AGGREGATION
-#define	DT_AGG(n)		(DT_AGG_BASE + (n))
-#define DT_AGG_IDX(n)		((n) - DT_AGG_BASE)
-#define DT_AGG_NUM		(DT_AGG_IDX(DT_AGG_HIGHEST))
-
-typedef enum dt_aggfid {
-	DT_AGG_AVG = DT_AGG_BASE,
-	DT_AGG_COUNT,
-	DT_AGG_LLQUANTIZE,
-	DT_AGG_LQUANTIZE,
-	DT_AGG_MAX,
-	DT_AGG_MIN,
-	DT_AGG_QUANTIZE,
-	DT_AGG_STDDEV,
-	DT_AGG_SUM,
-
-	DT_AGG_HIGHEST
-} dt_aggfid_t;
-
-/*
  * Sentinel to tell freopen() to restore the saved stdout.  This must not
  * be ever valid for opening for write access via freopen(3C), which of
  * course, "." never is.
@@ -793,8 +726,6 @@ extern int dt_read_scalar(caddr_t, const dtrace_recdesc_t *, uint64_t *);
 
 extern uint64_t dt_stddev(uint64_t *, uint64_t);
 
-extern int dt_options_load(dtrace_hdl_t *);
-
 extern void dt_setcontext(dtrace_hdl_t *, const dtrace_probedesc_t *);
 extern void dt_endcontext(dtrace_hdl_t *);
 
@@ -827,11 +758,6 @@ extern void dt_pragma(dt_node_t *);
 extern int dt_reduce(dtrace_hdl_t *, dt_version_t);
 extern dtrace_difo_t *dt_as(dt_pcb_t *);
 extern dtrace_difo_t *dt_difo_copy(dtrace_hdl_t *dtp, const dtrace_difo_t *odp);
-
-extern int dt_aggregate_go(dtrace_hdl_t *);
-extern int dt_aggregate_init(dtrace_hdl_t *);
-extern void dt_aggregate_destroy(dtrace_hdl_t *);
-extern int dt_aggregate_clear_one(const dtrace_aggdata_t *, void *);
 
 extern int dt_consume_init(dtrace_hdl_t *);
 extern void dt_consume_fini(dtrace_hdl_t *);

@@ -388,7 +388,7 @@ static int kprobe_attach(dtrace_hdl_t *dtp, const dt_probe_t *prp, int bpf_fd)
 			       EVENTSFS, FBT_GROUP_DATA, prp->desc->fun) + 1;
 		fn = dt_alloc(dtp, len);
 		if (fn == NULL)
-			return -ENOENT;;
+			return -ENOENT;
 
 		snprintf(fn, len, "%s" FBT_GROUP_FMT "/%s/format", EVENTSFS,
 			 FBT_GROUP_DATA, prp->desc->fun);
@@ -409,15 +409,6 @@ static int kprobe_attach(dtrace_hdl_t *dtp, const dt_probe_t *prp, int bpf_fd)
 
 	/* attach BPF program to the probe */
 	return dt_tp_probe_attach(dtp, prp, bpf_fd);
-}
-
-static int kprobe_probe_info(dtrace_hdl_t *dtp, const dt_probe_t *prp,
-			     int *argcp, dt_argdesc_t **argvp)
-{
-	*argcp = 0;			/* no arguments by default */
-	*argvp = NULL;
-
-	return 0;
 }
 
 /*
@@ -469,7 +460,6 @@ dt_provimpl_t	dt_fbt_kprobe = {
 	.load_prog	= &dt_bpf_prog_load,
 	.trampoline	= &kprobe_trampoline,
 	.attach		= &kprobe_attach,
-	.probe_info	= &kprobe_probe_info,
 	.detach		= &kprobe_detach,
 	.probe_destroy	= &dt_tp_probe_destroy,
 };

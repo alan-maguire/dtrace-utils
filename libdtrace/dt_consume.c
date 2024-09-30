@@ -14,6 +14,7 @@
 #include <ctype.h>
 #include <alloca.h>
 #include <dt_impl.h>
+#include <dt_aggregate.h>
 #include <dt_module.h>
 #include <dt_pcap.h>
 #include <dt_peb.h>
@@ -26,6 +27,24 @@
 #include <linux/perf_event.h>
 
 #define	DT_MASK_LO 0x00000000FFFFFFFFULL
+
+typedef struct dt_spec_buf_data {
+	dt_list_t dsbd_list;		/* linked-list forward/back pointers */
+	unsigned int dsbd_cpu;		/* cpu for data */
+	char *dsbd_data;		/* data for later processing */
+	uint32_t dsbd_size;		/* size of data */
+} dt_spec_buf_data_t;
+
+typedef struct dt_spec_buf {
+	dtrace_hdl_t *dtsb_dtp;		/* backpointer to the dtrace instance */
+	int32_t dtsb_id;		/* speculation ID */
+	size_t dtsb_size;		/* size of all buffers in this spec */
+	int dtsb_committing;		/* when draining, nonzero if commit */
+	dt_bpf_specs_t dtsb_spec;	/* bpf-side specs record for this spec
+					   (buffer read/write counts).  */
+	dt_list_t dtsb_dsbd_list;	/* list of dt_spec_bufs */
+	struct dt_hentry dtsb_he;	/* htab links */
+} dt_spec_buf_t;
 
 /*
  * We declare this here because (1) we need it and (2) we want to avoid a
@@ -414,11 +433,9 @@ static dt_htab_ops_t dt_spec_buf_htab_ops = {
 };
 
 static int
-dt_flowindent(dtrace_hdl_t *dtp, dtrace_probedata_t *data, dtrace_epid_t last,
-	      dtrace_epid_t next)
+dt_flowindent(dtrace_hdl_t *dtp, dtrace_probedata_t *data, dtrace_epid_t last)
 {
-	dtrace_probedesc_t	*pd = data->dtpda_pdesc, *npd;
-	dtrace_datadesc_t	*ndd;
+	dtrace_probedesc_t	*pd = data->dtpda_pdesc;
 	dtrace_flowkind_t	flow = DTRACEFLOW_NONE;
 	const char		*p = pd->prv;
 	const char		*n = pd->prb;
@@ -429,7 +446,6 @@ dt_flowindent(dtrace_hdl_t *dtp, dtrace_probedata_t *data, dtrace_epid_t last,
 	static const char	*ent = "entry", *ret = "return";
 	static int		entlen = 0, retlen = 0;
 	dtrace_epid_t		id = data->dtpda_epid;
-	int			rval;
 
 	if (entlen == 0) {
 		assert(retlen == 0);
@@ -464,21 +480,6 @@ dt_flowindent(dtrace_hdl_t *dtp, dtrace_probedata_t *data, dtrace_epid_t last,
 	if (flow == DTRACEFLOW_ENTRY) {
 		if (last != DTRACE_EPIDNONE && id != last &&
 		    pd->id == dtp->dt_pdesc[last]->id)
-			flow = DTRACEFLOW_NONE;
-	}
-
-	/*
-	 * If we're going to unindent this, it's more difficult to see if
-	 * we don't actually want to unindent it -- we need to look at the
-	 * _next_ EPID.
-	 */
-	if (flow == DTRACEFLOW_RETURN && next != DTRACE_EPIDNONE &&
-	    next != id) {
-		rval = dt_epid_lookup(dtp, next, &ndd, &npd);
-		if (rval != 0)
-			return rval;
-
-		if (npd->id == pd->id)
 			flow = DTRACEFLOW_NONE;
 	}
 
@@ -1533,6 +1534,7 @@ dt_clear(dtrace_hdl_t *dtp, caddr_t base, dtrace_recdesc_t *rec)
 	dtrace_aggid_t	aid;
 	uint64_t	gen;
 	caddr_t		addr;
+	dt_clear_arg_t	arg = { dtp, DTRACE_AGGVARIDNONE };
 
 	/* We have just one record: the aggregation ID. */
 	addr = base + rec->dtrd_offset;
@@ -1549,7 +1551,8 @@ dt_clear(dtrace_hdl_t *dtp, caddr_t base, dtrace_recdesc_t *rec)
 		return -1;
 
 	/* Also clear our own copy of the data, in case it gets printed. */
-	dtrace_aggregate_walk(dtp, dt_aggregate_clear_one, dtp);
+	arg.aid = aid;
+	dtrace_aggregate_walk(dtp, dt_aggregate_clear_one, &arg);
 
 	return 0;
 }
@@ -2057,9 +2060,7 @@ oom:
 
 static dt_spec_buf_data_t *
 dt_spec_buf_add_data(dtrace_hdl_t *dtp, dt_spec_buf_t *dtsb,
-		     dtrace_epid_t epid, unsigned int cpu,
-		     dtrace_datadesc_t *datadesc, char *data,
-		     uint32_t size)
+		     unsigned int cpu, char *data, uint32_t size)
 {
 	dt_spec_buf_data_t *dsbd;
 
@@ -2262,8 +2263,7 @@ dt_consume_one_probe(dtrace_hdl_t *dtp, FILE *fp, char *data, uint32_t size,
 			}
 		}
 
-		if (dt_spec_buf_add_data(dtp, dtsb, epid, pdat->dtpda_cpu, epd,
-					 data, size) == NULL)
+		if (dt_spec_buf_add_data(dtp, dtsb, pdat->dtpda_cpu, data, size) == NULL)
 			dtp->dt_specdrops++;
 
 		return DTRACE_WORKSTATUS_OKAY;
@@ -2306,7 +2306,7 @@ dt_consume_one_probe(dtrace_hdl_t *dtp, FILE *fp, char *data, uint32_t size,
 
 	if (data_recording) {
 		if (flow)
-			dt_flowindent(dtp, pdat, *last, DTRACE_EPIDNONE);
+			dt_flowindent(dtp, pdat, *last);
 
 		rval = (*efunc)(pdat, arg);
 
