@@ -1,6 +1,6 @@
 /*
  * Oracle Linux DTrace.
- * Copyright (c) 2009, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2024, Oracle and/or its affiliates. All rights reserved.
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * http://oss.oracle.com/licenses/upl.
  */
@@ -100,7 +100,7 @@ dtrace_program_info(dtrace_hdl_t *dtp, dtrace_prog_t *pgp,
 
 		/*
 		 * If there aren't any actions, account for the fact that
-		 * recording the epid will generate a record.
+		 * the default action will generate a record.
 		 */
 		dp = dt_dlib_get_func_difo(dtp, stp->ds_desc->dtsd_clause);
 		if (dp != NULL)
@@ -139,8 +139,8 @@ dtrace_program_info(dtrace_hdl_t *dtp, dtrace_prog_t *pgp,
 }
 
 typedef struct pi_state {
-	int		*cnt;
-	dt_ident_t	*idp;
+	int			*cnt;
+	dtrace_stmtdesc_t	*sdp;
 } pi_state_t;
 
 static int
@@ -151,7 +151,7 @@ dt_stmt_probe(dtrace_hdl_t *dtp, dt_probe_t *prp, pi_state_t *st)
 	dt_probe_info(dtp, prp->desc, &p);
 	dt_probe_enable(dtp, prp);
 
-	dt_probe_add_clause(dtp, prp, st->idp);
+	dt_probe_add_stmt(dtp, prp, st->sdp);
 	(*st->cnt)++;
 
 	return 0;
@@ -165,8 +165,15 @@ dt_prog_stmt(dtrace_hdl_t *dtp, dtrace_prog_t *pgp, dtrace_stmtdesc_t *sdp,
 	dtrace_probedesc_t	*pdp = &sdp->dtsd_ecbdesc->dted_probe;
 	int			rc;
 
+	if (dtp->dt_stmts == NULL) {
+		dtp->dt_stmts = dt_calloc(dtp, dtp->dt_stmt_nextid, sizeof(dtrace_stmtdesc_t *));
+		if (dtp->dt_stmts == NULL)
+			return dt_set_errno(dtp, EDT_NOMEM);
+	}
+	dtp->dt_stmts[sdp->dtsd_id] = sdp;
+
 	st.cnt = cnt;
-	st.idp = sdp->dtsd_clause;
+	st.sdp = sdp;
 	rc = dt_probe_iter(dtp, pdp, (dt_probe_f *)dt_stmt_probe, NULL, &st);
 
 	/*
