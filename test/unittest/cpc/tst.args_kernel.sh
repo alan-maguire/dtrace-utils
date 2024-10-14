@@ -43,7 +43,7 @@ $dtrace $dt_flags -qn '
 	/pid == $target/
 	{
 		printf("%x %x\n", arg0, arg1);
-	}' -c "$utils/$target $niters" | awk 'NF == 2' | sort | uniq -c > D.out
+	}' -c "$utils/$target $niters" | gawk 'NF == 2' | sort | uniq -c > D.out
 if [[ $? -ne 0 ]]; then
 	echo ERROR running DTrace
 	cat D.out
@@ -54,7 +54,7 @@ echo "summary of D output (occurrences, arg0, arg1)"
 cat D.out
 
 # check the PCs
-read ntotal nwarn nerror <<< `awk '
+read ntotal nwarn nerror <<< `gawk '
 BEGIN { ntotal = nwarn = nerror = 0; }
 
 # file reports 1:occurrences, 2:arg0, 3:arg1

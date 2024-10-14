@@ -85,7 +85,7 @@ fi
 # hot and cold instructions in the function.
 #
 
-objdump -d a.out | awk '
+objdump -d a.out | gawk '
 BEGIN {
 	pc0 = 0;	# First PC of loopfunc()
 	pcjump = 0;	# PC of the jump
@@ -142,7 +142,7 @@ fi
 # Use files pcs.out and D.out to check results.
 #
 
-awk '
+gawk '
 BEGIN {
    # Determine the expected counts for cold and hot instructions
    ncold = '$nouter';
@@ -263,7 +263,7 @@ END {
 if [ $? -ne 0 ]; then
 	cat   D.out
 	cat pcs.out
-	echo ERROR: awk postprocess
+	echo ERROR: gawk postprocess
 	exit 1
 fi
 
