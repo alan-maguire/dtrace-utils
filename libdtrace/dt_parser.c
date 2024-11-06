@@ -4209,6 +4209,10 @@ asgn_common:
 			dt_cook_taint_alloca(lp, NULL, rp);
 
 		dt_node_type_propagate(lp, dnp); /* see K&R[A7.5] */
+
+		if (rp->dn_flags & DT_NF_WRITABLE)
+			dnp->dn_flags |= DT_NF_WRITABLE;
+
 		dt_node_attr_assign(dnp, dt_attr_min(lp->dn_attr, rp->dn_attr));
 		break;
 	}

@@ -262,24 +262,27 @@ dt_setcontext(dtrace_hdl_t *dtp, const dtrace_probedesc_t *pdp)
 	int err;
 
 	/*
-	 * Both kernel and pid based providers are allowed to have names
-	 * ending with what could be interpreted as a number. We assume it's
-	 * a pid and that we may need to dynamically create probes for
-	 * that process if:
+	 * A provider name ending in a digit could be for a pid provider.
+	 * We may need to dynamically create probes for that process if:
 	 *
 	 * (1) The provider doesn't exist, or,
 	 * (2) The provider exists and has DT_PROVIDER_PID flag set.
 	 *
-	 * On an error, dt_pid_create_probes() will set the error message
+	 * On an error, dt_pid_create_pid_probes() will set the error message
 	 * and tag -- we just have to longjmp() out of here.
 	 */
 	if (pdp->prv && pdp->prv[0] &&
 	    isdigit(pdp->prv[strlen(pdp->prv) - 1]) &&
 	    ((pvp = dt_provider_lookup(dtp, pdp->prv)) == NULL ||
 	     pvp->pv_flags & DT_PROVIDER_PID) &&
-	    dt_pid_create_probes((dtrace_probedesc_t *)pdp, dtp, yypcb) != 0) {
+	    dt_pid_create_pid_probes((dtrace_probedesc_t *)pdp, dtp, yypcb) != 0)
 		longjmp(yypcb->pcb_jmpbuf, EDT_COMPILER);
-	}
+
+	/*
+	 * USDT probes.
+	 */
+	if (dt_pid_create_usdt_probes((dtrace_probedesc_t *)pdp, dtp, yypcb) != 0)
+		longjmp(yypcb->pcb_jmpbuf, EDT_COMPILER);
 
 	/*
 	 * Call dt_probe_info() to get the probe arguments and attributes.  If
@@ -1063,6 +1066,9 @@ dt_link_construct(dtrace_hdl_t *dtp, const dt_probe_t *prp, dtrace_difo_t *dp,
 			case DT_CONST_STKSIZ:
 				nrp->dofr_data = sizeof(uint64_t)
 				    * dtp->dt_options[DTRACEOPT_MAXFRAMES];
+				continue;
+			case DT_CONST_NPROBES:
+				nrp->dofr_data = dtp->dt_nprobes;
 				continue;
 			case DT_CONST_BOOTTM:
 				if (boottime == 0 && get_boottime())

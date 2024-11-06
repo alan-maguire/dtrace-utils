@@ -104,15 +104,33 @@ static void processECB(dof_hdr_t *dof, int size) {
 
 static void processProbe(int id, dof_probe_t *probe, const char *name,
 			 const char *strtab, unsigned int *offtab,
-			 unsigned int *enotab, unsigned char *argtab) {
+			 unsigned int *enotab, const unsigned char *argtab) {
     int			i;
+    const char		*str;
     unsigned int	*offs;
+    const unsigned char	*map;
 
     printf("      Probe %d: %s:%s:%s:%s\n",
 	   id, name, "",
 	   strtab + probe->dofpr_func, strtab + probe->dofpr_name);
-    printf("        argc %d noffs %d nenoffs %d\n",
-	   probe->dofpr_nargc, probe->dofpr_noffs, probe->dofpr_nenoffs);
+    printf("        nargc %d xargc %d noffs %d nenoffs %d\n",
+	   probe->dofpr_nargc, probe->dofpr_xargc,
+	   probe->dofpr_noffs, probe->dofpr_nenoffs);
+
+    str = strtab + probe->dofpr_nargv;
+    for (i = 0; i < probe->dofpr_nargc; i++) {
+	printf("          (native) argv[%d]: %s\n",
+	       i, str);
+	str += strlen(str) + 1;
+    }
+
+    str = strtab + probe->dofpr_xargv;
+    map = argtab + probe->dofpr_argidx;
+    for (i = 0; i < probe->dofpr_xargc; i++) {
+	printf("          (translated) argv[%d] (from native argv[%hhd]): %s\n",
+	       i, map[i], str);
+	str += strlen(str) + 1;
+    }
 
     offs = &offtab[probe->dofpr_offidx];
     for (i = 0; i < probe->dofpr_noffs; i++)

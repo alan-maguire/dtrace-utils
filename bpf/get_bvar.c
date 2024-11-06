@@ -22,6 +22,7 @@
 extern struct bpf_map_def cpuinfo;
 extern struct bpf_map_def probes;
 extern struct bpf_map_def state;
+extern struct bpf_map_def usdt_names;
 
 extern uint64_t PC;
 extern uint64_t STBSZ;
@@ -29,6 +30,7 @@ extern uint64_t STKSIZ;
 extern uint64_t BOOTTM;
 extern uint64_t STACK_OFF;
 extern uint64_t STACK_SKIP;
+extern uint64_t NPROBES;
 
 #define error(dctx, fault, illval) \
 	({ \
@@ -109,32 +111,52 @@ noinline uint64_t dt_get_bvar(const dt_dctx_t *dctx, uint32_t id, uint32_t idx)
 	case DIF_VAR_PROBEMOD:
 	case DIF_VAR_PROBEFUNC:
 	case DIF_VAR_PROBENAME: {
-		uint32_t	key;
-		dt_bpf_probe_t	*pinfo;
-		uint64_t	off;
+		uint32_t	key = mst->prid;
 
-		key = mst->prid;
-		pinfo = bpf_map_lookup_elem(&probes, &key);
-		if (pinfo == NULL)
-			return (uint64_t)dctx->strtab;
+		if (key < ((uint64_t)&NPROBES)) {
+			dt_bpf_probe_t	*pinfo;
+			uint64_t	off;
 
-		switch (id) {
-		case DIF_VAR_PROBEPROV:
-			off = pinfo->prv;
-			break;
-		case DIF_VAR_PROBEMOD:
-			off = pinfo->mod;
-			break;
-		case DIF_VAR_PROBEFUNC:
-			off = pinfo->fun;
-			break;
-		case DIF_VAR_PROBENAME:
-			off = pinfo->prb;
+			pinfo = bpf_map_lookup_elem(&probes, &key);
+			if (pinfo == NULL)
+				return (uint64_t)dctx->strtab;
+
+			switch (id) {
+			case DIF_VAR_PROBEPROV:
+				off = pinfo->prv;
+				break;
+			case DIF_VAR_PROBEMOD:
+				off = pinfo->mod;
+				break;
+			case DIF_VAR_PROBEFUNC:
+				off = pinfo->fun;
+				break;
+			case DIF_VAR_PROBENAME:
+				off = pinfo->prb;
+			}
+			if (off > (uint64_t)&STBSZ)
+				return (uint64_t)dctx->strtab;
+
+			return (uint64_t)(dctx->strtab + off);
+		} else {
+			char *s;
+
+			s = bpf_map_lookup_elem(&usdt_names, &key);
+			if (s == NULL)
+				return (uint64_t)dctx->strtab;
+
+			switch (id) {
+			case DIF_VAR_PROBENAME:
+				s += DTRACE_FUNCNAMELEN;
+			case DIF_VAR_PROBEFUNC:
+				s += DTRACE_MODNAMELEN;
+			case DIF_VAR_PROBEMOD:
+				s += DTRACE_PROVNAMELEN;
+			case DIF_VAR_PROBEPROV:
+			}
+
+			return (uint64_t)s;
 		}
-		if (off > (uint64_t)&STBSZ)
-			return (uint64_t)dctx->strtab;
-
-		return (uint64_t)(dctx->strtab + off);
 	}
 	case DIF_VAR_PID: {
 		uint64_t	val = bpf_get_current_pid_tgid();

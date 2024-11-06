@@ -2,7 +2,7 @@
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * http://oss.oracle.com/licenses/upl.
  *
- * Copyright (c) 2009, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2024, Oracle and/or its affiliates. All rights reserved.
  */
 
 /*
@@ -63,7 +63,9 @@
 #define	DTRACEOPT_SCRATCHSIZE	33	/* max scratch size permitted */
 #define	DTRACEOPT_LOCKMEM	34	/* max locked memory */
 #define	DTRACEOPT_PRINTSIZE	35	/* max # bytes printed by print() action */
-#define	DTRACEOPT_MAX		36	/* number of options */
+#define	DTRACEOPT_NUSDTPROBES	36	/* max number of (added) USDT probes */
+
+#define	DTRACEOPT_MAX		37	/* number of options */
 
 #define	DTRACEOPT_UNSET		(dtrace_optval_t)-2	/* unset option */
 

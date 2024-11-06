@@ -18,9 +18,32 @@
 #include <port.h>
 
 #include <dt_provider.h>
+#include <dt_probe.h>
 #include <dt_module.h>
 #include <dt_string.h>
 #include <dt_list.h>
+
+/*
+ * List of provider modules that register providers and probes.  A single
+ * provider module may create multiple providers.
+ */
+const dt_provimpl_t *dt_providers[] = {
+	&dt_dtrace,		/* list dt_dtrace first */
+	&dt_cpc,
+	&dt_fbt_fprobe,
+	&dt_io,
+	&dt_ip,
+	&dt_lockstat,
+	&dt_proc,
+	&dt_profile,
+	&dt_rawtp,
+	&dt_sched,
+	&dt_sdt,
+	&dt_syscall,
+	&dt_uprobe,
+	&dt_usdt,
+	NULL
+};
 
 static uint32_t
 dt_provider_hval(const dt_provider_t *pvp)
@@ -147,5 +170,34 @@ dt_provider_xref(dtrace_hdl_t *dtp, dt_provider_t *pvp, id_t id)
 	}
 
 	BT_SET(pvp->pv_xrefs, id);
+	return 0;
+}
+
+int
+dt_provider_discover(dtrace_hdl_t *dtp)
+{
+	int i, prid = dtp->dt_probe_id;
+
+	/* Discover new probes. */
+	for (i = 0; dt_providers[i]; i++) {
+		if (dt_providers[i]->discover && dt_providers[i]->discover(dtp) < 0)
+			return -1;        /* errno is already set */
+	}
+
+	/* Add them. */
+	for ( ; prid < dtp->dt_probe_id; prid++) {
+		dt_probe_t	*prp = dtp->dt_probes[prid];
+		int		rc;
+
+		dt_probe_enable(dtp, prp);
+
+		if (prp->prov->impl->add_probe == NULL)
+			continue;
+
+		rc = prp->prov->impl->add_probe(dtp, prp);
+		if (rc < 0)
+			return rc;
+	}
+
 	return 0;
 }

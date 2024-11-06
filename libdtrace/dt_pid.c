@@ -1151,6 +1151,14 @@ dt_pid_create_usdt_probes(dtrace_probedesc_t *pdp, dtrace_hdl_t *dtp, dt_pcb_t *
 
 	assert(pcb != NULL);
 
+	/* If it cannot end with a pid, we're done. */
+	if (pdp->prv[0] != '\0') {
+		char lastchar = pdp->prv[strlen(pdp->prv) - 1];
+
+		if (lastchar != '*' && !isdigit(lastchar))
+			return 0;
+	}
+
 	/* If it's strictly a pid provider, we're done. */
 	if (strncmp(pdp->prv, "pid", 3) == 0 && isdigit(pdp->prv[3])) {
 		const char *p = &pdp->prv[4];
@@ -1205,14 +1213,6 @@ dt_pid_create_usdt_probes(dtrace_probedesc_t *pdp, dtrace_hdl_t *dtp, dt_pcb_t *
 	globfree(&globbuf);
 
 	return err ? -1 : 0;
-}
-
-int
-dt_pid_create_probes(dtrace_probedesc_t *pdp, dtrace_hdl_t *dtp, dt_pcb_t *pcb)
-{
-	if (dt_pid_create_pid_probes(pdp, dtp, pcb))
-		return -1;
-	return dt_pid_create_usdt_probes(pdp, dtp, pcb);
 }
 
 int

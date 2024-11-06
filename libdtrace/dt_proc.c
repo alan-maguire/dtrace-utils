@@ -954,7 +954,7 @@ dt_proc_control(void *arg)
 
 			if ((Psystem_daemon(dpr->dpr_pid, dtp->dt_useruid,
 				    dtp->dt_sysslice) > 0) ||
-			    (tracer_pid == getpid()) ||
+			    (tracer_pid != getpid()) ||
 			    (tgid == getpid()))
 				noninvasive = 2;
 		}

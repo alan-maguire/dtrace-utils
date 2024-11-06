@@ -2205,7 +2205,7 @@ dt_consume_one_probe(dtrace_hdl_t *dtp, FILE *fp, char *data, uint32_t size,
 	pdat->dtpda_stid = stid;
 	pdat->dtpda_data = data;
 
-	if (prid > dtp->dt_probe_id)
+	if (prid >= dtp->dt_probe_id)
 		return dt_set_errno(dtp, EDT_BADID);
 	pdat->dtpda_pdesc = (dtrace_probedesc_t *)dtp->dt_probes[prid]->desc;
 	if (dt_stid_lookup(dtp, stid, &pdat->dtpda_ddesc) != 0)

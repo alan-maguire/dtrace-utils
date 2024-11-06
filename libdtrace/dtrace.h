@@ -161,6 +161,8 @@ typedef struct dtrace_stmtdesc {
 #define DT_CLSFLAG_EXIT			16	/* exit */
 #define DT_CLSFLAG_DESTRUCT		32	/* destructive */
 #define DT_CLSFLAG_AGGREGATION		64	/* aggregation */
+#define DT_CLSFLAG_USDT_INCLUDE		128	/* could be used in USDT clause */
+#define DT_CLSFLAG_USDT_EXCLUDE		256	/* could not be used in USDT clause */
 
 typedef int dtrace_stmt_f(dtrace_hdl_t *dtp, dtrace_prog_t *pgp,
     dtrace_stmtdesc_t *sdp, void *data);

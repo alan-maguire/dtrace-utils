@@ -97,7 +97,8 @@ static const struct {
 	{ EDT_OBJIO, "Cannot read object file or modules.dep" },
 	{ EDT_READMAXSTACK, "Cannot read kernel param perf_event_max_stack" },
 	{ EDT_TRACEMEM, "Missing or corrupt tracemem() record" },
-	{ EDT_PCAP, "Missing or corrupt pcap() record" }
+	{ EDT_PCAP, "Missing or corrupt pcap() record" },
+	{ EDT_PRINT, "Missing or corrupt print() record" }
 };
 
 static const int _dt_nerr = sizeof(_dt_errlist) / sizeof(_dt_errlist[0]);

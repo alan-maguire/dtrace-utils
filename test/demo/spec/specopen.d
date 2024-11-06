@@ -7,10 +7,7 @@
  * http://oss.oracle.com/licenses/upl.
  */
 
-/* @@runtest-opts: $_pid */
-/* @@xfail: fbt provider not yet implemented; needs a trigger with failing open()s */
-
-syscall::open:entry,
+syscall::open:entry
 {
 	/*
 	 * The call to speculation() creates a new speculation.  If this fails,
@@ -38,7 +35,7 @@ fbt:::
 	speculate(self->spec);
 }
 
-syscall::open:return,
+syscall::open:return
 /self->spec/
 {
 	/*
@@ -51,7 +48,7 @@ syscall::open:return,
 	trace(errno);
 }
 
-syscall::open:return,
+syscall::open:return
 /self->spec && errno != 0/
 {
 	/*
@@ -61,7 +58,7 @@ syscall::open:return,
 	self->spec = 0;
 }
 
-syscall::open:return,
+syscall::open:return
 /self->spec && errno == 0/
 {
 	/*

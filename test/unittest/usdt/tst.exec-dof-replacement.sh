@@ -81,6 +81,7 @@ fi
 
 ./test1 &
 PROC=$!
+disown %+
 
 # Wait for the exec, then list all the target's probes.
 # We cannot use pure dtrace to do this because it doesn't check

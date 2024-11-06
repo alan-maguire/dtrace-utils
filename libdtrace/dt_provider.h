@@ -62,6 +62,9 @@ typedef struct dt_provimpl {
 	int (*probe_info)(dtrace_hdl_t *dtp,	/* get probe info */
 			  const struct dt_probe *prp,
 			  int *argcp, dt_argdesc_t **argvp);
+	int (*discover)(dtrace_hdl_t *dtp);	/* discover new probes */
+	int (*add_probe)(dtrace_hdl_t *dtp,	/* add a new probe */
+			 struct dt_probe *prp);
 	void (*detach)(dtrace_hdl_t *dtp,	/* probe cleanup */
 		       const struct dt_probe *prb);
 	void (*probe_destroy)(dtrace_hdl_t *dtp, /* free probe data */
@@ -85,6 +88,9 @@ extern dt_provimpl_t dt_sched;
 extern dt_provimpl_t dt_sdt;
 extern dt_provimpl_t dt_syscall;
 extern dt_provimpl_t dt_uprobe;
+extern dt_provimpl_t dt_usdt;
+
+extern const dt_provimpl_t *dt_providers[];
 
 typedef struct dt_provider {
 	dt_list_t pv_list;		/* list forward/back pointers */
@@ -110,6 +116,7 @@ extern dt_provider_t *dt_provider_create(dtrace_hdl_t *, const char *,
 					 const dt_provimpl_t *,
 					 const dtrace_pattr_t *, void *);
 extern int dt_provider_xref(dtrace_hdl_t *, dt_provider_t *, id_t);
+extern int dt_provider_discover(dtrace_hdl_t *dtp);
 
 #ifdef	__cplusplus
 }

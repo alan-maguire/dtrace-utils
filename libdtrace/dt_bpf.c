@@ -941,6 +941,41 @@ gmap_create_probes(dtrace_hdl_t *dtp)
 }
 
 /*
+ * Create the 'usdt_names' and 'usdt_prids' BPF maps.
+ *
+ * 'usdt_names':  a global hash map indexed by PRID and whose value has probe
+ *                name elements at fixed offsets within the value.  This map
+ *                is used for get_bvar() to look up probe name elements for
+ *                any prid that was created after dtrace_go().
+ *
+ * 'usdt_prids':  a global hash map indexed by (pid, underlying probe ID).
+ *                The value is a probe ID for the overlying USDT probe and
+ *                a bit mask indicating which clauses to execute for this pid.
+ *
+ *                For a given (pid, PRID) key, there can be at most one
+ *                overlying USDT probe.
+ */
+static int
+gmap_create_usdt(dtrace_hdl_t *dtp)
+{
+	size_t nusdtprobes = dtp->dt_options[DTRACEOPT_NUSDTPROBES];
+
+	dtp->dt_usdt_namesmap_fd = create_gmap(dtp, "usdt_names", BPF_MAP_TYPE_HASH,
+	    sizeof(dtrace_id_t), DTRACE_FULLNAMELEN, nusdtprobes);
+	if (dtp->dt_usdt_namesmap_fd == -1)
+		return -1;
+
+	dtp->dt_usdt_pridsmap_fd = create_gmap(dtp, "usdt_prids", BPF_MAP_TYPE_HASH,
+	    sizeof(usdt_prids_map_key_t), sizeof(usdt_prids_map_val_t), nusdtprobes);
+	if (dtp->dt_usdt_pridsmap_fd == -1)
+		return -1;
+
+	dtp->dt_nprobes = dtp->dt_probe_id;
+
+	return 0;
+}
+
+/*
  * Create the 'gvars' BPF map.
  *
  * Global variables map.  This is a global map with a singleton element (key 0)
@@ -1045,6 +1080,7 @@ dt_bpf_gmap_create(dtrace_hdl_t *dtp)
 	CREATE_MAP(scratchmem)
 	CREATE_MAP(strtab)
 	CREATE_MAP(probes)
+	CREATE_MAP(usdt)
 	CREATE_MAP(gvars)
 	CREATE_MAP(lvars)
 	CREATE_MAP(dvars)
@@ -1093,7 +1129,7 @@ dt_bpf_reloc_prog(dtrace_hdl_t *dtp, const dtrace_difo_t *dp)
  *
  * Note that DTrace generates BPF programs that are licensed under the GPL.
  */
-static int
+int
 dt_bpf_load_prog(dtrace_hdl_t *dtp, const dt_probe_t *prp,
 		 const dtrace_difo_t *dp, uint_t cflags)
 {
@@ -1274,6 +1310,10 @@ dt_bpf_load_progs(dtrace_hdl_t *dtp, uint_t cflags)
 	     prp = dt_list_next(prp)) {
 		int		fd;
 		int		rc = -1;
+
+		/* Handle probes discovered after compilation. */
+		if (prp->prov->impl->add_probe)
+			prp->prov->impl->add_probe(dtp, prp);
 
 		dp = prp->difo;
 		if (dp == NULL)

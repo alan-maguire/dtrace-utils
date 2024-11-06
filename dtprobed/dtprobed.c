@@ -61,10 +61,6 @@
 
 #include <dtrace/ioctl.h>
 
-#ifdef HAVE_LIBSYSTEMD
-#include <systemd/sd-daemon.h>
-#endif
-
 #include <dt_list.h>
 #include "dof_parser.h"
 #include "dof_stash.h"
@@ -86,7 +82,7 @@ static pid_t parser_pid;
 static int parser_in_pipe;
 static int parser_out_pipe;
 static int sync_fd = -1;
-static int timeout = 5000; 			/* In seconds.  */
+static int timeout = 5; 			/* In seconds.  */
 static int rq_count = 0;
 static int cleanup_interval = 128;		/* In requests.  */
 
@@ -1073,9 +1069,7 @@ main(int argc, char *argv[])
 		sync_fd = -1;
 	}
 
-#ifdef HAVE_LIBSYSTEMD
-	sd_notify(1, "READY=1");
-#endif
+	systemd_notify("READY=1");
 
 	ret = loop();
 

@@ -148,7 +148,7 @@ dt_handle_err(dtrace_hdl_t *dtp, dtrace_probedata_t *data)
 	prid = DT_REC(uint64_t, 0);
 	stid = DT_REC(uint64_t, 1);
 
-	if (prid > dtp->dt_probe_id)
+	if (prid >= dtp->dt_probe_id)
 		return dt_set_errno(dtp, EDT_BADERROR);
 	if (dt_stid_lookup(dtp, stid, &errdd) != 0)
 		return dt_set_errno(dtp, EDT_BADERROR);

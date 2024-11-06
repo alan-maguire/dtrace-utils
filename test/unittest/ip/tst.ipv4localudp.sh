@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Oracle Linux DTrace.
-# Copyright (c) 2008, 2017, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2008, 2024, Oracle and/or its affiliates. All rights reserved.
 # Licensed under the Universal Permissive License v 1.0 as shown at
 # http://oss.oracle.com/licenses/upl.
 #
@@ -33,7 +33,7 @@ fi
 dtrace=$1
 testdir="$(dirname $_test)"
 local=127.0.0.1
-$dtrace $dt_cflags -c "$testdir/perlping.pl udp $local" -qs /dev/stdin <<EOF
+$dtrace $dt_flags -c "$testdir/perlping.pl udp $local" -qs /dev/stdin <<EOF
 BEGIN
 {
 	send = receive = 0;

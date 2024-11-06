@@ -172,24 +172,9 @@ dt_probe_alloc_args(dt_probe_t *prp, int nargc, int xargc)
 	}
 }
 
-static size_t
-dt_probe_keylen(const dtrace_probedesc_t *pdp)
-{
-	return strlen(pdp->mod) + 1 + strlen(pdp->fun) + 1 +
-		strlen(pdp->prb) + 1;
-}
-
-static char *
-dt_probe_key(const dtrace_probedesc_t *pdp, char *s)
-{
-	snprintf(s, INT_MAX, "%s:%s:%s", pdp->mod, pdp->fun, pdp->prb);
-	return s;
-}
-
 /*
  * Lookup a probe declaration based on a known provider and full or partially
- * specified module, function, and name.  If the probe is not known to us yet,
- * ask dtrace(7D) to match the description and then cache any useful results.
+ * specified module, function, and name.
  */
 dt_probe_t *
 dt_probe_lookup2(dt_provider_t *pvp, const char *s)
@@ -197,28 +182,28 @@ dt_probe_lookup2(dt_provider_t *pvp, const char *s)
 	dtrace_hdl_t *dtp = pvp->pv_hdl;
 	dtrace_probedesc_t pd;
 	dt_ident_t *idp;
-	size_t keylen;
 	char *key;
 
 	if (dtrace_str2desc(dtp, DTRACE_PROBESPEC_NAME, s, &pd) != 0)
 		return NULL; /* dt_errno is set for us */
 
-	keylen = dt_probe_keylen(&pd);
-	key = dt_probe_key(&pd, alloca(keylen));
+	if (asprintf(&key, "%s:%s:%s", pd.mod, pd.fun, pd.prb) == -1) {
+		dt_set_errno(dtp, errno);
+		goto out;
+	}
 
 	/*
 	 * If the probe is already declared, then return the dt_probe_t from
-	 * the existing identifier.  This could come from a static declaration
-	 * or it could have been cached from an earlier call to this function.
+	 * the existing identifier.
 	 */
-	if ((idp = dt_idhash_lookup(pvp->pv_probes, key)) != NULL)
+	if ((idp = dt_idhash_lookup(pvp->pv_probes, key)) != NULL) {
+		dt_desc_destroy(dtp, &pd, 0);
 		return idp->di_data;
+	}
 
-	if (errno == ESRCH || errno == EBADF)
-		dt_set_errno(dtp, EDT_NOPROBE);
-	else
-		dt_set_errno(dtp, errno);
-
+	dt_set_errno(dtp, EDT_NOPROBE);
+ out:
+	dt_desc_destroy(dtp, &pd, 0);
 	return NULL;
 }
 
@@ -386,13 +371,7 @@ dt_probe_destroy(dt_probe_t *prp)
 
 	dt_free(dtp, prp->mapping);
 	dt_free(dtp, prp->argv);
-	if (prp->desc) {
-		dt_free(dtp, (void *)prp->desc->prv);
-		dt_free(dtp, (void *)prp->desc->mod);
-		dt_free(dtp, (void *)prp->desc->fun);
-		dt_free(dtp, (void *)prp->desc->prb);
-		dt_free(dtp, (void *)prp->desc);
-	}
+	dt_desc_destroy(dtp, (dtrace_probedesc_t *)prp->desc, 1);
 	dt_free(dtp, prp);
 }
 

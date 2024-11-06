@@ -14,6 +14,7 @@
 #include <dtrace/difo.h>
 #include <dt_btf.h>
 #include <dt_impl.h>
+#include <dt_probe.h>
 
 struct dtrace_hdl;
 
@@ -54,6 +55,7 @@ extern "C" {
 #define DT_CONST_ZERO_OFF		20
 #define DT_CONST_STACK_OFF		21
 #define DT_CONST_STACK_SKIP		22
+#define DT_CONST_NPROBES		23
 
 #define DT_BPF_LOG_SIZE_DEFAULT	(UINT32_MAX >> 8)
 #define DT_BPF_LOG_SIZE_SMALL	4096
@@ -88,6 +90,8 @@ extern int dt_bpf_prog_load(struct dtrace_hdl *, const struct dt_probe *prp,
 			    size_t sz);
 extern int dt_bpf_raw_tracepoint_open(const void *tp, int fd);
 extern int dt_bpf_make_progs(struct dtrace_hdl *, uint_t);
+extern int dt_bpf_load_prog(dtrace_hdl_t *dtp, const dt_probe_t *prp,
+			    const dtrace_difo_t *dp, uint_t cflags);
 extern int dt_bpf_load_progs(struct dtrace_hdl *, uint_t);
 extern void dt_bpf_init(struct dtrace_hdl *dtp);
 

@@ -319,7 +319,8 @@ struct dtrace_hdl {
 	 */
 	struct dt_probe **dt_probes; /* array of probes */
 	size_t dt_probes_sz;	/* size of array of probes */
-	uint32_t dt_probe_id;	/* next available probe id */
+	dtrace_id_t dt_probe_id; /* next available probe id */
+	dtrace_id_t dt_nprobes;	/* number of probes, at dtrace_go() */
 
 	struct dt_probe *dt_error; /* ERROR probe */
 
@@ -389,6 +390,8 @@ struct dtrace_hdl {
 	int dt_aggmap_fd;	/* file descriptor for the 'aggs' BPF map */
 	int dt_genmap_fd;	/* file descriptor for the 'agggen' BPF map */
 	int dt_cpumap_fd;	/* file descriptor for the 'cpuinfo' BPF map */
+	int dt_usdt_pridsmap_fd; /* file descriptor for the 'usdt_prids' BPF map */
+	int dt_usdt_namesmap_fd; /* file descriptor for the 'usdt_names' BPF map */
 	dtrace_handle_err_f *dt_errhdlr; /* error handler, if any */
 	void *dt_errarg;	/* error handler argument */
 	dtrace_handle_drop_f *dt_drophdlr; /* drop handler, if any */
@@ -758,6 +761,8 @@ extern dtrace_difo_t *dt_difo_copy(dtrace_hdl_t *dtp, const dtrace_difo_t *odp);
 
 extern int dt_consume_init(dtrace_hdl_t *);
 extern void dt_consume_fini(dtrace_hdl_t *);
+
+extern void dt_desc_destroy(dtrace_hdl_t *dtp, dtrace_probedesc_t *, int free_pdp);
 
 extern dtrace_datadesc_t *dt_datadesc_hold(dtrace_datadesc_t *ddp);
 extern void dt_datadesc_release(dtrace_hdl_t *, dtrace_datadesc_t *);

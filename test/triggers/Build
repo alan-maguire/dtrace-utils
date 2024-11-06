@@ -13,7 +13,7 @@ EXTERNAL_64BIT_TRIGGERS = testprobe readwholedir mmap bogus-ioctl open delaydie 
     ustack-tst-spin ustack-tst-mtspin \
     visible-constructor visible-constructor-static visible-constructor-static-unstripped
 
-EXTERNAL_64BIT_SDT_TRIGGERS = usdt-tst-argmap usdt-tst-args usdt-tst-forker usdt-tst-special
+EXTERNAL_64BIT_SDT_TRIGGERS = usdt-tst-argmap usdt-tst-args usdt-tst-forker usdt-tst-defer usdt-tst-special
 EXTERNAL_64BIT_TRIGGERS += $(EXTERNAL_64BIT_SDT_TRIGGERS)
 
 EXTERNAL_32BIT_TRIGGERS := visible-constructor-32
@@ -192,18 +192,21 @@ pid-tst-weak1_CFLAGS := -O0
 pid-tst-weak2_CFLAGS := -O0
 profile-tst-ufuncsort_CFLAGS := -O0
 
-# usdt-tst-argmap calls USDT probes (defined in argmap.d) using sys/sdt.h
+# usdt-tst-argmap calls USDT probes using sys/sdt.h
 usdt-tst-argmap_CFLAGS := -Iuts/common
 usdt-tst-argmap_PROV := usdt-tst-argmap-prov.d
 
-# usdt-tst-args calls USDT probes (defined in args.d) using sys/sdt.h
+# usdt-tst-args calls USDT probes using sys/sdt.h
 usdt-tst-args_CFLAGS := -Iuts/common
 usdt-tst-args_PROV := usdt-tst-args-prov.d
 
-# usdt-tst-forker calls USDT probes (defined in args.d) based on dtrace -h
+# usdt-tst-forker calls USDT probes based on dtrace -h
 usdt-tst-forker_PROV := usdt-tst-forker-prov.d
 
-# usdt-tst-special calls USDT probes (defined in prov.d) based on dtrace -h
+# usdt-tst-defer calls USDT probes based on dtrace -h
+usdt-tst-defer_PROV := usdt-tst-defer-prov.d
+
+# usdt-tst-special calls USDT probes based on dtrace -h
 usdt-tst-special_CFLAGS := -fno-inline -O2
 usdt-tst-special_PROV := usdt-tst-special-prov.d
 

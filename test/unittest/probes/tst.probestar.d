@@ -1,11 +1,10 @@
 /*
  * Oracle Linux DTrace.
- * Copyright (c) 2011, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2024, Oracle and/or its affiliates. All rights reserved.
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * http://oss.oracle.com/licenses/upl.
  */
-/* @@xfail: dtv2 */
-/* @@trigger: testprobe */
+/* @@trigger: readwholedir */
 
 /*
  * ASSERTION:
@@ -13,9 +12,7 @@
  * Call matching probe clauses with given name using "*"
  *
  * SECTION: Program Structure/Probe Clauses and Declarations
- *
  */
-
 
 #pragma D option quiet
 

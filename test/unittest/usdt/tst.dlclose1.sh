@@ -200,6 +200,7 @@ function mywait() {
 
 ./main > myfile.txt &
 pid=$!
+disown %+
 echo started pid $pid
 
 mywait 6 "started"  myfile.txt # wait for process to start

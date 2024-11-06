@@ -58,7 +58,7 @@ Installation paths:
 --bindir=PREFIX/sbin				Binary directory
 --sbindir=PREFIX/sbin				Alias for --bindir
 --includedir=PREFIX/include			#include directory
---mandir=PREFIX/share/man/man8			Manpage directory
+--mandir=PREFIX/share/man			Manpage directory
 --pkg-config-dir=PREFIX/share/pkgconfig		Pkg-config directory
 --udevdir=PREFIX/lib/udev/rules.d		udev rules directory
 --systemd-unit-dir=PREFIX/lib/systemd/system	systemd unit directory
@@ -92,10 +92,14 @@ built locally, none of these should be needed):
 				"build"); seen under /lib/modules
 
 EOF
-	make help-overrides-header help-overrides-option
+        make help-overrides-header help-overrides-option
+        cat >&2 <<'EOF'
+--with-systemd=[yes/no]		Install the systemd unit files (default: yes)
+EOF
         echo >&2
         make help-overrides
-	cat >&2 <<'EOF'
+        cat >&2 <<'EOF'
+
 Options controlling the compiler (pass on the command line):
 
 CC				C compiler (may be a cross-compiler)
@@ -122,7 +126,7 @@ trap 'rm -rf build/.config.new build/.config-vars.mk.new' ERR
 for option in "$@"; do
     case "$option" in
         --help) help; exit 1;;
-	--prefix=*) write_make_var prefix "$option";;
+        --prefix=*) write_make_var prefix "$option";;
         --objdir=*) write_make_var objdir "$option";;
         --libdir=*) write_make_var LIBDIR "$option";;
         --bindir=*) write_make_var SBINDIR "$option";;
@@ -153,21 +157,22 @@ for option in "$@"; do
         --kernel-obj-dir=*) write_make_var KERNELOBJDIR "$option";;
         --kernel-src-suffix=*) write_make_var KERNELSRCNAME "$option";;
         --kernel-obj-suffix=*) write_make_var KERNELBLDNAME "$option";;
+        --with-systemd|--with-systemd=y*) write_make_var WITH_SYSTEMD "y";;
+        --with-systemd=n*|--without-systemd) write_make_var WITH_SYSTEMD "";;
         HAVE_ELF_GETSHDRSTRNDX=*) write_config_var ELF_GETSHDRSTRNDX "$option";;
         --with-libctf=*) write_config_var LIBCTF "$option";;
         HAVE_LIBCTF=*) write_config_var LIBCTF "$option";;
         HAVE_STRRSTR=*) write_config_var STRRSTR "$option";;
-        --with-libsystemd=*) write_config_var LIBSYSTEMD "$option";;
-        HAVE_LIBSYSTEMD=*) write_config_var LIBSYSTEMD "$option";;
         HAVE_FUSE_LOG=*) write_config_var FUSE_LOG "$option";;
         --with-libfuse3=*) write_config_var LIBFUSE3 "$option";;
         HAVE_LIBFUSE3=*) write_config_var LIBFUSE3 "$option";;
         HAVE_FUSE_NUMA=*) write_config_var FUSE_NUMA "$option";;
         HAVE_CLOSE_RANGE=*) write_config_var CLOSE_RANGE "$option";;
         HAVE_GETTID=*) write_config_var GETTID "$option";;
+        HAVE_VALGRIND=*) write_config_var VALGRIND "$option";;
         HAVE_BPFV3=*) write_config_var BPFV3 "$option";;
         HAVE_BPFMASM=*) write_config_var BPFMASM "$option";;
-	*) echo "Unknown option $option" >&2
+        *) echo "Unknown option $option" >&2
            exit 1;;
     esac
 done

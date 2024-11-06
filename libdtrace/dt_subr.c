@@ -1,6 +1,6 @@
 /*
  * Oracle Linux DTrace.
- * Copyright (c) 2010, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2024, Oracle and/or its affiliates. All rights reserved.
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * http://oss.oracle.com/licenses/upl.
  */
@@ -173,6 +173,21 @@ dtrace_desc2str(const dtrace_probedesc_t *pdp, char *buf, size_t len)
 		snprintf(buf, len, "%u", pdp->id);
 
 	return buf;
+}
+
+void
+dt_desc_destroy(dtrace_hdl_t *dtp, dtrace_probedesc_t *pdp, int free_pdp)
+{
+	if (pdp == NULL)
+		return;
+
+        dt_free(dtp, (void *) pdp->prv);
+	dt_free(dtp, (void *) pdp->mod);
+	dt_free(dtp, (void *) pdp->fun);
+	dt_free(dtp, (void *) pdp->prb);
+
+        if (free_pdp)
+		dt_free(dtp, pdp);
 }
 
 char *
