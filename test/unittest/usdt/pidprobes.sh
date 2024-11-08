@@ -5,9 +5,12 @@
 # Licensed under the Universal Permissive License v 1.0 as shown at
 # http://oss.oracle.com/licenses/upl.
 #
-# This test verifies that USDT and pid probes can share underlying probes.
+# This test verifies various properties of USDT and pid probes sharing
+# underlying probes.
 
 dtrace=$1
+usdt=$2
+mapping=$3
 
 # Set up test directory.
 
@@ -17,13 +20,21 @@ cd $DIRNAME
 
 # Create test source files.
 
-cat > prov.d <<EOF
+if [[ -z $mapping ]]; then
+    cat > prov.d <<EOF
 provider pyramid {
 	probe entry(int, char, int, int);
 };
 EOF
+else
+    cat > prov.d <<EOF
+provider pyramid {
+	probe entry(int a, char b, int c, int d) : (int c, int d, int a, char b);
+};
+EOF
+fi
 
-cat > main.c <<EOF
+cat > main.c <<'EOF'
 #include <stdio.h>
 #include "prov.h"
 
@@ -48,7 +59,7 @@ EOF
 
 # Build the test program.
 
-$dtrace -h -s prov.d
+$dtrace $dt_flags -h -s prov.d
 if [ $? -ne 0 ]; then
 	echo "failed to generate header file" >&2
 	exit 1
@@ -61,12 +72,12 @@ fi
 if [[ `uname -m` = "aarch64" ]]; then
 	objdump -d main.o > disasm_foo.txt.before
 fi
-$dtrace -G -64 -s prov.d main.o
+$dtrace $dt_flags -G -64 -s prov.d main.o
 if [ $? -ne 0 ]; then
 	echo "failed to create DOF" >&2
 	exit 1
 fi
-cc $test_cppflags -o main main.o prov.o
+cc $test_ldflags -o main main.o prov.o
 if [ $? -ne 0 ]; then
 	echo "failed to link final executable" >&2
 	exit 1
@@ -75,7 +86,7 @@ fi
 # Check that the program output is 0 when the USDT probe is not enabled.
 # That is, the PYRAMID_ENTRY_ENABLED() is-enabled checks should not pass.
 
-./main > main.out
+./main standalone > main.out
 echo "my result: 0" > main.out.expected
 if ! diff -q main.out main.out.expected > /dev/null; then
 	echo '"my result"' looks wrong when not using DTrace
@@ -88,11 +99,25 @@ fi
 
 # Run dtrace.
 
-$dtrace $dt_flags -q -c ./main -o dtrace.out -n '
+cat >> pidprobes.d <<'EOF'
 p*d$target::foo:
 {
 	printf("%d %s:%s:%s:%s %x\n", pid, probeprov, probemod, probefunc, probename, uregs[R_PC]);
-}' > main.out2
+}
+EOF
+
+if [[ -n $usdt ]]; then
+	echo 'pyramid$target::foo: {' >> pidprobes.d
+
+	if [[ -n $mapping ]]; then
+		echo 'printf("%d %s:%s:%s:%s %i %i %i %c\n", pid, probeprov, probemod, probefunc, probename, args[0], args[1], args[2], args[3]);' >> pidprobes.d
+	else
+		echo 'printf("%d %s:%s:%s:%s %i %c %i %i\n", pid, probeprov, probemod, probefunc, probename, args[0], args[1], args[2], args[3]);' >> pidprobes.d
+	fi
+	echo '}' >> pidprobes.d
+fi
+
+$dtrace $dt_flags -q -c ./main -o dtrace.out -s pidprobes.d > main.out2
 if [ $? -ne 0 ]; then
 	echo "failed to run dtrace" >&2
 	cat main.out2
@@ -106,7 +131,7 @@ fi
 echo "my result: 10" > main.out2.expected
 
 if ! diff -q main.out2 main.out2.expected > /dev/null; then
-	echo '"my result"' looks wrong when using DTrace
+	echo '"my result"' looks wrong
 	echo === got ===
 	cat main.out2
 	echo === expected ===
@@ -262,8 +287,17 @@ for pc in $pcs; do
 done
 echo $usdt_pcs | awk '{printf("'$pid' pyramid'$pid':main:foo:entry %x\n", $1);}' >> dtrace.out.expected
 echo $usdt_pcs | awk '{printf("'$pid' pyramid'$pid':main:foo:entry %x\n", $2);}' >> dtrace.out.expected
+if [[ -n $usdt ]]; then
+	if [[ -z $mapping ]]; then
+		echo "$pid pyramid$pid:main:foo:entry 2 a 16 128" >> dtrace.out.expected
+		echo "$pid pyramid$pid:main:foo:entry 4 b 32 256" >> dtrace.out.expected
+	else
+		echo "$pid pyramid$pid:main:foo:entry 16 128 2 a" >> dtrace.out.expected
+		echo "$pid pyramid$pid:main:foo:entry 32 256 4 b" >> dtrace.out.expected
+	fi
+fi
 
-# Sort and check.
+# Sort and check (dropping any wake-up firings from deferred probing).
 
 sort dtrace.out          > dtrace.out.sorted
 sort dtrace.out.expected > dtrace.out.expected.sorted
