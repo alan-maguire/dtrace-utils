@@ -41,9 +41,8 @@ install-dtprobed-autostart::
 ifneq ($(WITH_SYSTEMD),)
 	mkdir -p $(INSTSYSTEMDUNITDIR) $(INSTSYSTEMDPRESETDIR)
 	$(call describe-install-target,$(INSTSYSTEMDUNITDIR),dtprobed.service)
-	sed 's,@SBINDIR@,$(SBINDIR),' < $(dtprobed_DIR)dtprobed.service.in > $(INSTSYSTEMDUNITDIR)/dtprobed.service
-        chown root:root $(INSTSYSTEMDUNITDIR)/dtprobed.service
-	chmod 0644 $(INSTSYSTEMDUNITDIR)/dtprobed.service
+	sed 's,@SBINDIR@,$(SBINDIR),' < $(dtprobed_DIR)dtprobed.service.in > $(objdir)/dtprobed.service
+	install -m 644 $(objdir)/dtprobed.service $(INSTSYSTEMDUNITDIR)
 	$(call describe-install-target,$(INSTSYSTEMDUNITDIR),dtrace-usdt.target)
 	install -m 644 $(dtprobed_DIR)dtrace-usdt.target $(INSTSYSTEMDUNITDIR)
 	$(call describe-install-target,$(INSTSYSTEMDPRESETDIR),50-dtprobed.preset)

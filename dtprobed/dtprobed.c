@@ -772,40 +772,59 @@ process_dof(pid_t pid, int out, int in, dev_t dev, ino_t inum, dev_t exec_dev,
 			dof_parser_tidy(1);
 			continue;
 		}
-		if (provider->type != DIT_PROVIDER)
+		if (provider->type != DIT_PROVIDER && provider->type != DIT_EOF)
 			goto err;
 		break;
 	} while (!provider);
 
-	if (dof_stash_push_parsed(&accum, provider) < 0)
-		goto oom;
-
-	for (i = 0; i < provider->provider.nprobes; i++) {
-		dof_parsed_t *probe = dof_read(pid, in);
-		size_t j;
-
-		errmsg = "no probes in this provider, or parse state corrupt";
-		if (!probe || probe->type != DIT_PROBE)
-			goto err;
-
-		if (dof_stash_push_parsed(&accum, probe) < 0)
+	while (provider->type != DIT_EOF) {
+		if (dof_stash_push_parsed(&accum, provider) < 0)
 			goto oom;
 
-		j = 0;
-		do {
-			dof_parsed_t *tp = dof_read(pid, in);
+		fuse_log(FUSE_LOG_DEBUG, "Parser read: provider %s, %i probes\n",
+			 provider->provider.name, provider->provider.nprobes);
 
-			errmsg = "no tracepoints in a probe, or parse state corrupt";
-			if (!tp || tp->type == DIT_PROVIDER || tp->type == DIT_PROBE)
+		for (i = 0; i < provider->provider.nprobes; i++) {
+			dof_parsed_t *probe = dof_read(pid, in);
+			size_t j;
+
+			errmsg = "no probes in this provider, or parse state corrupt";
+			if (!probe || probe->type != DIT_PROBE)
 				goto err;
 
-			if (dof_stash_push_parsed(&accum, tp) < 0)
+			if (dof_stash_push_parsed(&accum, probe) < 0)
 				goto oom;
 
-			if (tp->type == DIT_TRACEPOINT)
-				j++;
-		} while (j < probe->probe.ntp);
+			j = 0;
+			do {
+				dof_parsed_t *tp = dof_read(pid, in);
+
+				errmsg = "no tracepoints in a probe, or parse state corrupt";
+				if (!tp || tp->type == DIT_PROVIDER ||
+				    tp->type == DIT_PROBE || tp->type == DIT_EOF)
+					goto err;
+
+				fuse_log(FUSE_LOG_DEBUG, "Parser read: adding %s:%s to stash\n",
+					 provider->provider.name, probe->probe.name);
+
+				if (dof_stash_push_parsed(&accum, tp) < 0)
+					goto oom;
+
+				if (tp->type == DIT_TRACEPOINT)
+					j++;
+			} while (j < probe->probe.ntp);
+		}
+
+		errmsg = "subsequent provider read failed, or stream not properly terminated";
+		provider = dof_read(pid, in);
+		if (!provider)
+			goto err;
 	}
+
+	/* Push the EOF on.  */
+
+	if (dof_stash_push_parsed(&accum, provider) < 0)
+		goto oom;
 
 	if (!reparsing)
 		if ((gen = dof_stash_add(pid, dev, inum, exec_dev, exec_inum, dh,

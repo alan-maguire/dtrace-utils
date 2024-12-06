@@ -8,4 +8,4 @@
 # This test verifies that USDT and pid probes that share underlying probes
 # do not apply arg mappings (incorrectly) to the pid probes.
 
-exec $(dirname $_test)/pidprobes.sh $1 t t
+exec $(dirname $_test)/tst.pidprobes.sh $1 t t

@@ -1007,7 +1007,8 @@ dt_probe_iter(dtrace_hdl_t *dtp, const dtrace_probedesc_t *pdp,
 	 * Loop over providers, allowing them to provide these probes.
 	 */
 	while ((pvp = dt_htab_next(dtp->dt_provs, &it)) != NULL) {
-		if (pvp->impl->provide == NULL ||
+		if (pvp->impl == NULL ||
+		    pvp->impl->provide == NULL ||
 		    !dt_gmatch(pvp->desc.dtvd_name, pdp->prv))
 			continue;
 		memcpy(&desc, pdp, sizeof(desc));

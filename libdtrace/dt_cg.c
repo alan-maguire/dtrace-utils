@@ -1645,13 +1645,13 @@ dt_cg_store_val(dt_pcb_t *pcb, dt_node_t *dnp, dtrace_actkind_t kind,
 	    kind == DTRACEACT_UADDR) {
 		off = dt_rec_add(dtp, dt_cg_fill_gap, kind, 16, 8, NULL, arg);
 
-		/* preface the value with the user process tgid */
+		/* preface the value with the user process pid */
 		if (dt_regset_xalloc_args(drp) == -1)
 			longjmp(yypcb->pcb_jmpbuf, EDT_NOREG);
 		dt_regset_xalloc(drp, BPF_REG_0);
 		emit(dlp, BPF_CALL_HELPER(BPF_FUNC_get_current_pid_tgid));
 		dt_regset_free_args(drp);
-		emit(dlp, BPF_ALU64_IMM(BPF_AND, BPF_REG_0, 0xffffffff));
+		emit(dlp, BPF_ALU64_IMM(BPF_RSH, BPF_REG_0, 32));
 		emit(dlp, BPF_STORE(BPF_DW, BPF_REG_9, off, BPF_REG_0));
 		dt_regset_free(drp, BPF_REG_0);
 
@@ -3821,13 +3821,13 @@ empty_args:
 				if (tuplesize < nextoff)
 					emit(dlp,  BPF_ALU64_IMM(BPF_ADD, treg, nextoff - tuplesize));
 
-				/* Preface the value with the user process tgid. */
+				/* Preface the value with the user process pid. */
 				if (dt_regset_xalloc_args(drp) == -1)
 					longjmp(yypcb->pcb_jmpbuf, EDT_NOREG);
 				dt_regset_xalloc(drp, BPF_REG_0);
 				emit(dlp, BPF_CALL_HELPER(BPF_FUNC_get_current_pid_tgid));
 				dt_regset_free_args(drp);
-				emit(dlp, BPF_ALU64_IMM(BPF_AND, BPF_REG_0, 0xffffffff));
+				emit(dlp, BPF_ALU64_IMM(BPF_RSH, BPF_REG_0, 32));
 				emit(dlp, BPF_STORE(BPF_DW, treg, 0, BPF_REG_0));
 				dt_regset_free(drp, BPF_REG_0);
 

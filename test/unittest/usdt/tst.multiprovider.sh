@@ -5,7 +5,11 @@
 # Licensed under the Universal Permissive License v 1.0 as shown at
 # http://oss.oracle.com/licenses/upl.
 #
-# This test verifies that USDT and pid probes that share underlying probes
-# get the arguments correct for the USDT probes.
+if [ $# != 1 ]; then
+	echo expected one argument: '<'dtrace-path'>'
+	exit 2
+fi
 
-exec $(dirname $_test)/tst.pidprobes.sh $1 t ""
+dtrace=$1
+
+exec $dtrace $dt_flags -l -P 'prov*' -c `pwd`/test/triggers/usdt-tst-multiprovider

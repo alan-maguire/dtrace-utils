@@ -6,11 +6,16 @@
 # http://oss.oracle.com/licenses/upl.
 #
 # This test verifies various properties of USDT and pid probes sharing
-# underlying probes.
+# underlying probes.  With only one argument (as called by runtest.sh),
+# it verifies that USDT and pid probes can share underlying probes.
+#
+# Other tests call back to this one to test arg-mapping behaviour,
+# verify that usdt probes actually fire when overlapped by pid probes,
+# etc.
 
 dtrace=$1
-usdt=$2
-mapping=$3
+usdt=${2:-}
+mapping=${3:-}
 
 # Set up test directory.
 
@@ -86,7 +91,7 @@ fi
 # Check that the program output is 0 when the USDT probe is not enabled.
 # That is, the PYRAMID_ENTRY_ENABLED() is-enabled checks should not pass.
 
-./main standalone > main.out
+./main > main.out
 echo "my result: 0" > main.out.expected
 if ! diff -q main.out main.out.expected > /dev/null; then
 	echo '"my result"' looks wrong when not using DTrace
@@ -131,7 +136,7 @@ fi
 echo "my result: 10" > main.out2.expected
 
 if ! diff -q main.out2 main.out2.expected > /dev/null; then
-	echo '"my result"' looks wrong
+	echo '"my result"' looks wrong when using DTrace
 	echo === got ===
 	cat main.out2
 	echo === expected ===
@@ -297,7 +302,7 @@ if [[ -n $usdt ]]; then
 	fi
 fi
 
-# Sort and check (dropping any wake-up firings from deferred probing).
+# Sort and check.
 
 sort dtrace.out          > dtrace.out.sorted
 sort dtrace.out.expected > dtrace.out.expected.sorted

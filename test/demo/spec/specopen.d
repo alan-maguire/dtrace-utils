@@ -7,7 +7,7 @@
  * http://oss.oracle.com/licenses/upl.
  */
 
-syscall::open:entry
+syscall::openat:entry
 {
 	/*
 	 * The call to speculation() creates a new speculation.  If this fails,
@@ -23,7 +23,7 @@ syscall::open:entry
 	 * speculatively traced; it will only appear in the data buffer if the
 	 * speculation is subsequently commited.
 	 */
-	printf("%s", stringof(copyinstr(arg0)));
+	printf("%s", stringof(copyinstr(arg1)));
 }
 
 fbt:::
@@ -35,20 +35,20 @@ fbt:::
 	speculate(self->spec);
 }
 
-syscall::open:return
+syscall::openat:return
 /self->spec/
 {
 	/*
 	 * To balance the output with the -F option, we want to be sure that
 	 * every entry has a matching return.  Because we speculated the
-	 * open entry above, we want to also speculate the open return.
+	 * openat entry above, we want to also speculate the openat return.
 	 * This is also a convenient time to trace the errno value.
 	 */
 	speculate(self->spec);
 	trace(errno);
 }
 
-syscall::open:return
+syscall::openat:return
 /self->spec && errno != 0/
 {
 	/*
@@ -58,7 +58,7 @@ syscall::open:return
 	self->spec = 0;
 }
 
-syscall::open:return
+syscall::openat:return
 /self->spec && errno == 0/
 {
 	/*

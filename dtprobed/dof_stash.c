@@ -360,7 +360,13 @@ dof_stash_free(dt_list_t *accum)
 	for (accump = dt_list_next(accum); accump != NULL;
 	     accump = dt_list_next(accump)) {
 		dt_list_delete(accum, accump);
-		free(accump->parsed);
+
+		/*
+		 * All parsed memory regions are terminated by an EOF, so once
+		 * we encounter the EOF, this region can safely be freed.
+		 */
+		if (accump->parsed->type == DIT_EOF)
+			free(accump->parsed);
 		free(last_accump);
 		last_accump = accump;
 	}
@@ -656,6 +662,10 @@ dof_stash_write_parsed(pid_t pid, dev_t dev, ino_t ino, dt_list_t *accum)
 			fuse_log(FUSE_LOG_ERR, "dtprobed: parser error: %s\n",
 				 accump->parsed->err.err);
 			goto err_provider_close;
+		/* EOF: nothing to do.  No need to record this parser-stream
+		 * implementation detail into the parsed representation.  */
+		case DIT_EOF:
+			break;
 
 		default:
 			/*

@@ -484,6 +484,7 @@ static void destroy(dtrace_hdl_t *dtp, void *arg)
 		dt_free(dtp, probe_map);
 	}
 	dt_free(dtp, arg);
+	pfm_terminate();
 }
 
 dt_provimpl_t	dt_cpc = {

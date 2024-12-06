@@ -1,6 +1,6 @@
 /*
  * Oracle Linux DTrace; DOF parser.
- * Copyright (c) 2010, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2024, Oracle and/or its affiliates. All rights reserved.
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * http://oss.oracle.com/licenses/upl.
  */
@@ -1145,7 +1145,7 @@ dof_parse(int out, dof_helper_t *dhp, dof_hdr_t *dof)
 {
 	int			i, rv;
 	uintptr_t		daddr = (uintptr_t)dof;
-	int			count = 0;
+	dof_parsed_t		eof;
 
 	dt_dbg_dof("DOF 0x%p from helper {'%s', %p, %p}...\n",
 		   dof, dhp ? dhp->dofhp_mod : "<none>", dhp, dof);
@@ -1157,8 +1157,7 @@ dof_parse(int out, dof_helper_t *dhp, dof_hdr_t *dof)
 	}
 
 	/*
-	 * Look for helper providers, validate their descriptions, and
-	 * parse them.
+	 * Look for providers, validate their descriptions, and parse them.
 	 */
 	if (dhp != NULL) {
 		dt_dbg_dof("  DOF 0x%p Validating and parsing providers...\n", dof);
@@ -1177,25 +1176,19 @@ dof_parse(int out, dof_helper_t *dhp, dof_hdr_t *dof)
 				dof_destroy(dhp, dof);
 				return;
 			}
-			count++;
 			emit_provider(out, dhp, dof, sec);
 		}
 	}
 
 	/*
-	 * If nothing was written, emit an empty result to wake up
-	 * the caller.
+	 * Always emit an EOF, to wake up the caller if nothing else, but also
+	 * to notify the caller that there are no more providers to read.
 	 */
-	if (count == 0) {
-		dof_parsed_t empty;
+	memset(&eof, 0, sizeof(dof_parsed_t));
 
-		memset(&empty, 0, sizeof(dof_parsed_t));
-
-		empty.size = offsetof(dof_parsed_t, provider.name);
-		empty.type = DIT_PROVIDER;
-		empty.provider.nprobes = 0;
-		dof_parser_write_one(out, &empty, empty.size);
-	}
+	eof.size = offsetof(dof_parsed_t, provider.nprobes);
+	eof.type = DIT_EOF;
+	dof_parser_write_one(out, &eof, eof.size);
 
 	dof_destroy(dhp, dof);
 }

@@ -1361,9 +1361,9 @@ for dt in $dtrace; do
                 want_all_output=t
             fi
 
-            if [[ -f core ]] || [[ "$(find $tmpdir -name core -print)" != "" ]]; then
+            if [[ -f core ]] || [[ "$(find $tmpdir -name core -print)" != "" ]] || [[ $exitcode = 139 ]]; then
                 # A coredump in the current directory or under the tmpdir.
-                # Preserve it in the logdir.
+                # Preserve it in the logdir, if possible.
 
                 mv core $logdir/$(echo $base | tr '/' '-').core 2>/dev/null || true
                 find $tmpdir -name core -type f -print0 | xargs -0r -I'{}' mv --backup=numbered '{}' $logdir/$(echo $base | tr '/' '-').core

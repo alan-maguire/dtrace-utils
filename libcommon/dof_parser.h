@@ -24,6 +24,7 @@
  *     DIT_ARGS_XLAT (1, optional)
  *     DIT_ARGS_MAP (1, optional)
  *     DIT_TRACEPOINT (any number >= 1)
+ * DIT_EOF (no more providers, last record)
  *
  * The dof_parsed.provider.flags word indicates the presence of the
  * various optional args records in the following stream (you can rely on
@@ -37,9 +38,10 @@ typedef enum dof_parsed_info {
 	DIT_PROBE = 1,
 	DIT_TRACEPOINT = 2,
 	DIT_ERR = 3,
-	DIT_ARGS_NATIVE = 4,
-	DIT_ARGS_XLAT = 5,
-	DIT_ARGS_MAP = 6,
+	DIT_EOF = 4,
+	DIT_ARGS_NATIVE = 5,
+	DIT_ARGS_XLAT = 6,
+	DIT_ARGS_MAP = 7,
 } dof_parsed_info_t;
 
 /*

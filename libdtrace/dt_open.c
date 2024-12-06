@@ -1235,6 +1235,8 @@ dtrace_close(dtrace_hdl_t *dtp)
 	while ((pgp = dt_list_next(&dtp->dt_programs)) != NULL)
 		dt_program_destroy(dtp, pgp);
 
+	free(dtp->dt_stmts);
+
 	while ((dxp = dt_list_next(&dtp->dt_xlators)) != NULL)
 		dt_xlator_destroy(dtp, dxp);
 
@@ -1296,12 +1298,6 @@ dtrace_close(dtrace_hdl_t *dtp)
 	dt_pfdict_destroy(dtp);
 	dt_dof_fini(dtp);
 	dt_probe_fini(dtp);
-
-	/*
-	 * FIXME:
-	 * add some dt_prov_fini() to iterate over providers and call provider-specific fini()'s
-	 * CPC will call pfm_terminate()
-	 */
 
 	dt_htab_destroy(dtp, dtp->dt_provs);
 
