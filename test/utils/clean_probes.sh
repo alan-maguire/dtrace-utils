@@ -70,7 +70,7 @@ fi
 	     { sub(/:/, "/"); }
 
 	     {
-		 if (/_fbt_/)
+		 if (/_(raw)?fbt_/)
 		     kpv[kpc++] = $0;
 		 else
 		     upv[upc++] = $0;

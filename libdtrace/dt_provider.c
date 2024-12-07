@@ -30,12 +30,13 @@
 const dt_provimpl_t *dt_providers[] = {
 	&dt_dtrace,		/* list dt_dtrace first */
 	&dt_cpc,
-	&dt_fbt_fprobe,
+	&dt_fbt,
 	&dt_io,
 	&dt_ip,
 	&dt_lockstat,
 	&dt_proc,
 	&dt_profile,
+	&dt_rawfbt,
 	&dt_rawtp,
 	&dt_sched,
 	&dt_sdt,

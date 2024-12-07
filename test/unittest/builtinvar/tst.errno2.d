@@ -1,6 +1,6 @@
 /*
  * Oracle Linux DTrace.
- * Copyright (c) 2013, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2024, Oracle and/or its affiliates. All rights reserved.
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * http://oss.oracle.com/licenses/upl.
  */
@@ -15,6 +15,7 @@
 
 #pragma D option quiet
 #pragma D option destructive
+#pragma D option zdefs
 
 BEGIN
 {
@@ -27,19 +28,22 @@ BEGIN
  * Record file name pointer arg1 for the 'openat' function and arg0 for 'open'.
  */
 syscall::open:entry
+/progenyof(parent)/
 {
 	self->fn = arg0;  /* 'open' arg0 holds a pointer to the file name */
 }
 
 syscall::openat:entry
+/progenyof(parent)/
 {
 	self->fn = arg1;  /* 'openat' arg1 holds a pointer to the file name */
 }
 
 syscall::open*:return
-/copyinstr(self->fn) == "/non/existant/file" && errno != 0/
+/self->fn && copyinstr(self->fn) == "/non/existant/file" && errno != 0/
 {
 	printf("OPEN FAILED with errno %d\n", errno);
+	self->fn = 0;
 }
 
 proc:::exit

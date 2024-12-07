@@ -28,7 +28,9 @@ static probe_dep_t	probes[] = {
 	{ "off-cpu",
 	  DTRACE_PROBESPEC_NAME,	"rawtp:sched::sched_switch" },
 	{ "on-cpu",
-	  DTRACE_PROBESPEC_NAME,	"fbt::__perf_event_task_sched_in:entry" },
+	  DTRACE_PROBESPEC_NAME,	"fbt:vmlinux:finish_task_switch:return" },
+	{ "on-cpu",
+	  DTRACE_PROBESPEC_NAME,	"rawfbt:vmlinux:finish_task_switch.*:return" },
 	{ "surrender",
 	  DTRACE_PROBESPEC_NAME,	"fbt::do_sched_yield:entry" },
 	{ "tick",
@@ -157,26 +159,7 @@ static int trampoline(dt_pcb_t *pcb, uint_t exitlbl)
  */
 static void enable(dtrace_hdl_t *dtp, dt_probe_t *prp)
 {
-	struct perf_event_attr attr = {};
-	int swfd;
-
-	if (strcmp(prp->desc->prb, "on-cpu") != 0)
-		return dt_sdt_enable(dtp, prp);
-
-	memset(&attr, 0, sizeof(attr));
-	attr.size = sizeof(attr);
-	attr.type = PERF_TYPE_SOFTWARE;
-	attr.config = PERF_COUNT_SW_CONTEXT_SWITCHES;
-	attr.freq = 1;
-	attr.sample_freq = 1000;
-	attr.context_switch = 1;
-
-	swfd = dt_perf_event_open(&attr, -1, 0, -1, 0);
-	if (swfd < 0)
-		dt_dprintf("perf event open failed for context_switch: %d\n", errno);
-	else
-		prp->prv_data = (void *)(long)swfd;
-	dt_sdt_enable(dtp, prp);
+	return dt_sdt_enable(dtp, prp);
 }
 
 static void detach(dtrace_hdl_t *dtp, const dt_probe_t *prp)

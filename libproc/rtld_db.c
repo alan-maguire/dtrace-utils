@@ -4,7 +4,7 @@
 
 /*
  * Oracle Linux DTrace.
- * Copyright (c) 2013, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2024, Oracle and/or its affiliates. All rights reserved.
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * http://oss.oracle.com/licenses/upl.
  */
@@ -1771,7 +1771,7 @@ rd_loadobj_iter(rd_agent_t *rd, rl_iter_f *fun, void *state)
 	if (rd->P->state == PS_DEAD) {
 		*jmp_pad = old_exec_jmp;
 
-		_dprintf("%i: link map iteration failed: process is dead..\n",
+		_dprintf("%i: link map iteration failed: process is dead.\n",
 		    rd->P->pid);
 		return RD_ERR;
 	}

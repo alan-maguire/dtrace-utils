@@ -241,7 +241,7 @@ static int probe_info(dtrace_hdl_t *dtp, const dt_probe_t *prp,
 	if (rc < 0 || id == 0)
 		return dt_set_errno(dtp, EDT_ENABLING_ERR);
 
-	dt_tp_set_event_id(prp, id);
+	dt_tp_probe_set_id(prp, id);
 
 	if (asprintf(&str, "struct trace_event_raw_%s", prp->desc->prb) == -1)
 		return dt_set_errno(dtp, EDT_NOMEM);

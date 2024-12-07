@@ -73,7 +73,7 @@ if [ $? -ne 0 ]; then
 fi
 
 script() {
-	exec $dtrace $dt_flags -qws /dev/stdin $1 $2 $3 <<'EOF'
+	exec $dtrace $dt_flags -qws /dev/stdin $1 $2 $3 2> debug.$3 <<'EOF'
 	int fired[pid_t];
 	int exited[pid_t];
 
@@ -142,13 +142,28 @@ DONE=$!
 script $ONE $TWO 2 &
 DTWO=$!
 
+dump_debug() {
+    if [[ -n $DTRACE_DEBUG ]]; then
+        echo "runtest DEBUG $(date +%s): Debug output of first dtrace so far, PID $DONE" >&2
+        cat debug.1 >&2
+
+        echo "runtest DEBUG $(date +%s): Debug output of second dtrace so far, PID $DTWO" >&2
+        cat debug.2 >&2
+    fi
+}
+
 if ! wait $DONE; then
+    dump_debug
+    echo "first dtrace exited nonzero at $(date +%s)" >&2
     exit 1
 fi
 
 if ! wait $DTWO; then
+    dump_debug
+    echo "second dtrace exited nonzero at $(date +%s)" >&2
     exit 1
 fi
+dump_debug
 
 wait $ONE $TWO
 

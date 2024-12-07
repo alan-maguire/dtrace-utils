@@ -57,6 +57,9 @@ static const dtrace_pattr_t	pattr = {
 { DTRACE_STABILITY_PRIVATE, DTRACE_STABILITY_PRIVATE, DTRACE_CLASS_ISA },
 };
 
+dt_provimpl_t			dt_fbt_fprobe;
+dt_provimpl_t			dt_fbt_kprobe;
+
 /*
  * Scan the PROBE_LIST file and add entry and return probes for every function
  * that is listed.
@@ -64,7 +67,6 @@ static const dtrace_pattr_t	pattr = {
 static int populate(dtrace_hdl_t *dtp)
 {
 	dt_provider_t		*prv;
-	dt_provimpl_t		*impl;
 	FILE			*f;
 	char			*buf = NULL;
 	char			*p;
@@ -73,9 +75,9 @@ static int populate(dtrace_hdl_t *dtp)
 	dtrace_syminfo_t	sip;
 	dtrace_probedesc_t	pd;
 
-	impl = BPF_HAS(dtp, BPF_FEAT_FENTRY) ? &dt_fbt_fprobe : &dt_fbt_kprobe;
+	dt_fbt = BPF_HAS(dtp, BPF_FEAT_FENTRY) ? dt_fbt_kprobe : dt_fbt_kprobe;
 
-	prv = dt_provider_create(dtp, prvname, impl, &pattr, NULL);
+	prv = dt_provider_create(dtp, prvname, &dt_fbt, &pattr, NULL);
 	if (prv == NULL)
 		return -1;			/* errno already set */
 
@@ -208,7 +210,7 @@ static int fprobe_trampoline(dt_pcb_t *pcb, uint_t exitlbl)
 		 */
 		dmp = dt_module_lookup_by_name(dtp, prp->desc->mod);
 		if (dmp && prp->argc == 2) {
-			int32_t	btf_id = dt_tp_get_event_id(prp);
+			int32_t	btf_id = dt_tp_probe_get_id(prp);
 			int	i = dt_btf_func_argc(dtp, dmp->dm_btf, btf_id);
 
 			emit(dlp, BPF_LOAD(BPF_DW, BPF_REG_0, BPF_REG_8, i * 8));
@@ -239,7 +241,7 @@ static int fprobe_probe_info(dtrace_hdl_t *dtp, const dt_probe_t *prp,
 	if (btf_id <= 0)
 		goto done;
 
-	dt_tp_set_event_id(prp, btf_id);
+	dt_tp_probe_set_id(prp, btf_id);
 
 	if (strcmp(desc->prb, "return") == 0) {
 		/* Void function return probes only provide 1 argument. */
@@ -306,7 +308,7 @@ static int fprobe_prog_load(dtrace_hdl_t *dtp, const dt_probe_t *prp,
 		return fd;
 
 	rc = dt_bpf_prog_attach(prp->prov->impl->prog_type, atype, fd,
-				dt_tp_get_event_id(prp), dp, lvl, buf, sz);
+				dt_tp_probe_get_id(prp), dp, lvl, buf, sz);
 	close(fd);
 
 	return rc;
@@ -417,7 +419,7 @@ static int kprobe_attach(dtrace_hdl_t *dtp, const dt_probe_t *prp, int bpf_fd)
  *
  * If there is an event FD, we close it.
  *
- * We also try to remove any uprobe that may have been created for the probe.
+ * We also try to remove any kprobe that may have been created for the probe.
  * This is harmless for probes that didn't get created.  If the removal fails
  * for some reason we are out of luck - fortunately it is not harmful to the
  * system as a whole.
@@ -462,4 +464,9 @@ dt_provimpl_t	dt_fbt_kprobe = {
 	.attach		= &kprobe_attach,
 	.detach		= &kprobe_detach,
 	.probe_destroy	= &dt_tp_probe_destroy,
+};
+
+dt_provimpl_t	dt_fbt = {
+	.name		= prvname,
+	.populate	= &populate,
 };
