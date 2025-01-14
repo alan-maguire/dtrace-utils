@@ -53,7 +53,7 @@ main(int argc, char **argv)
 	TEST_PROV_GO_DOUBLED(666, "foo");
 	TEST_PROV_GO_HALVED(666, "foo");
 	TEST_PROV_GO_VANISHING(666, "foo");
-	sleep(10);
+	sleep(1000); /* long sleep is okay; we kill the process when we no longer need it */
 }
 EOF
 

@@ -997,7 +997,7 @@ dt_pid_create_usdt_probes_proc(dtrace_hdl_t *dtp, dt_proc_t *dpr,
 					     "Cannot get name of mapping containing "
 					     "%sprobe %s for pid %d\n",
 					     tp->tracepoint.is_enabled ? "is-enabled ": "",
-					     psp.pps_prb, dpr->dpr_pid);
+					     prb, dpr->dpr_pid);
 				goto oom;
 			}
 
@@ -1252,7 +1252,8 @@ dt_pid_create_usdt_probes(dtrace_probedesc_t *pdp, dtrace_hdl_t *dtp, dt_pcb_t *
 				      DTRACE_PROC_SHORTLIVED) < 0) {
 			dt_pid_error(dtp, pcb, NULL, D_PROC_GRAB,
 			    "failed to grab process %d", (int)pid);
-			return -1;
+			err = 1;  // FIXME but do we want to set the error if we end up return 0?
+			continue;
 		}
 		dpr = dt_proc_lookup(dtp, pid);
 		assert(dpr != NULL);
@@ -1272,7 +1273,37 @@ dt_pid_create_usdt_probes(dtrace_probedesc_t *pdp, dtrace_hdl_t *dtp, dt_pcb_t *
 	free(globpat);
 	globfree(&globbuf);
 
-	return err ? -1 : 0;
+	/* If no errors, report success. */
+	if (err == 0)
+		return 0;
+
+	/* If provider description was blank, report success. */
+	if (pdp->prv[0] == '\0')
+		return 0;
+
+	/* Look to see if the provider description had a pid glob. */
+	for (i = strlen(pdp->prv) - 1; i >= 0; i--) {
+		/*
+		 * If we hit a '*' before a nondigit, we have a pid glob.
+		 * So, even though err==0, we declare success.
+		 */
+		if (pdp->prv[i] == '*')
+			return 0;
+
+		/*
+		 * If we hit a nondigit before a '*', we do not have a pid glob.
+		 * Since a pid was specified explicitly, err==1 means an error.
+		 */
+		if (!isdigit(pdp->prv[i]))
+			return -1;
+	}
+
+	/*
+	 * If the provider description was exclusively digits,
+	 * it was not a legitimate USDT provider description.
+	 * So it makes perfect sense not to return any probes.
+	 */
+	return 0;
 }
 
 int

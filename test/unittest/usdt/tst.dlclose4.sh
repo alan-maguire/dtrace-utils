@@ -192,6 +192,7 @@ function unload_lib() {
 
 ./main &
 pid=$!
+disown %+
 sleep 2
 
 # Check.
@@ -204,7 +205,6 @@ unload_lib
 # Clean up.
 
 kill -s KILL $pid
-wait $pid >& /dev/null
 
 echo success
 exit 0

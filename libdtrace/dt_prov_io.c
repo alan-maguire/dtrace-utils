@@ -1,6 +1,6 @@
 /*
  * Oracle Linux DTrace.
- * Copyright (c) 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2024, 2025, Oracle and/or its affiliates. All rights reserved.
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * http://oss.oracle.com/licenses/upl.
  *
@@ -63,17 +63,9 @@ static probe_dep_t	probes[] = {
 	{ "start",
 	  DTRACE_PROBESPEC_NAME,	"rawtp:block::block_bio_queue" },
 	{ "start",
-	  DTRACE_PROBESPEC_NAME,	"rawtp:nfs::nfs_initiate_read",
-	  DT_VERSION_NUMBER(5, 6, 0), },
+	  DTRACE_PROBESPEC_NAME,	"rawtp:nfs::nfs_initiate_read" },
 	{ "start",
-	  DTRACE_PROBESPEC_NAME,	"fbt:nfs:nfs_initiate_read:entry",
-	  0, DT_VERSION_NUMBER(5, 5, 19) },
-	{ "start",
-	  DTRACE_PROBESPEC_NAME,	"rawtp:nfs::nfs_initiate_write",
-	  DT_VERSION_NUMBER(5, 6, 0), },
-	{ "start",
-	  DTRACE_PROBESPEC_NAME,	"fbt:nfs:nfs_initiate_write:entry",
-	  0, DT_VERSION_NUMBER(5, 5, 19) },
+	  DTRACE_PROBESPEC_NAME,	"rawtp:nfs::nfs_initiate_write" },
 	{ NULL, }
 };
 
@@ -157,10 +149,107 @@ static void deref_r3(dt_irlist_t *dlp, uint_t exitlbl, int addend, int width,
 
 /*
  * For NFS events, we have to construct a fake struct bio, which we have to
+ * populate from the inode (arg0) and hdr->good_bytes (arg2) arguments the
+ * underlying probe provides.
+ */
+static void io_nfs_args_v1(dt_pcb_t *pcb, dt_irlist_t *dlp, uint_t exitlbl,
+			   const char *prb, const char *uprb)
+{
+	int	off;
+	size_t	siz;
+
+	/*
+	 * Determine the various sizes and offsets we want.
+	 *
+	 *     // Access these fields relative to &bio.
+	 *     struct bio bio = {
+	 *         .bi_opf = ...,
+	 *         .bi_iter.bi_size = ...,      // struct bvec_iter bi_iter
+	 *         .bi_iter.bi_sector = ...,
+	 *         .bi_bdev = 0,		// -or- .bi_disk = 0
+	 *     };
+	 *
+	 *     // Access these fields relative to hdr.
+	 *     struct nfs_pgio_header *hdr;
+	 *     ... = hdr->res.count;            // struct nfs_pgio_res  res
+	 */
+
+	/*
+	 * Declare the -io-bio variable and store its address in %r6.
+	 */
+	dt_cg_tramp_decl_var(pcb, &v_bio);
+	dt_cg_tramp_get_var(pcb, "this->-io-bio", 1, BPF_REG_6);
+
+	/* Fill in bi_opf */
+	off = dt_cg_ctf_offsetof("struct bio", "bi_opf", &siz, 0);
+	siz = bpf_ldst_size(siz, 1);
+	if (strstr(uprb, "read"))
+		emit(dlp, BPF_STORE_IMM(siz, BPF_REG_6, off, REQ_OP_READ));
+	else
+		emit(dlp, BPF_STORE_IMM(siz, BPF_REG_6, off, REQ_OP_WRITE));
+
+	/*
+	 * bio.bi_iter.bi_size = hdr->foo.count;
+	 *
+	 * For the 'start' probe, count is arg2
+	 * For the 'done' probe, count is hdr->res.count (hdr in arg1)
+	 */
+	if (strcmp(prb, "start") == 0) {
+		emit(dlp, BPF_LOAD(BPF_DW, BPF_REG_0, BPF_REG_7, DMST_ARG(2)));
+	} else {
+		emit(dlp, BPF_LOAD(BPF_DW, BPF_REG_3, BPF_REG_7, DMST_ARG(1)));
+		off = dt_cg_ctf_offsetof("struct nfs_pgio_header", "res", NULL, 0)
+		    + dt_cg_ctf_offsetof("struct nfs_pgio_res", "count", &siz, 0);
+		deref_r3(dlp, exitlbl, off, siz, BPF_REG_0);
+	}
+
+	off = dt_cg_ctf_offsetof("struct bio", "bi_iter", NULL, 0)
+	    + dt_cg_ctf_offsetof("struct bvec_iter", "bi_size", &siz, 0);
+	siz = bpf_ldst_size(siz, 1);
+	emit(dlp, BPF_STORE(siz, BPF_REG_6, off, BPF_REG_0));
+
+	/*
+	 * bio.bi_iter.bi_sector = inode;
+	 */
+	if (strcmp(prb, "start") == 0) {
+		/* inode is arg0 */
+		emit(dlp, BPF_LOAD(BPF_DW, BPF_REG_3, BPF_REG_7, DMST_ARG(0)));
+	} else {
+		/* use hdr->inode, hdr is arg1 */
+		emit(dlp, BPF_LOAD(BPF_DW, BPF_REG_3, BPF_REG_7, DMST_ARG(1)));
+
+		off = dt_cg_ctf_offsetof("struct nfs_pgio_header", "inode", &siz, 0);
+		deref_r3(dlp, exitlbl, off, siz, BPF_REG_3);
+	}
+
+	off = dt_cg_ctf_offsetof("struct nfs_inode", "fileid", &siz, 0)
+	    - dt_cg_ctf_offsetof("struct nfs_inode", "vfs_inode", NULL, 0);
+	deref_r3(dlp, exitlbl, off, siz, BPF_REG_0);
+
+	off = dt_cg_ctf_offsetof("struct bio", "bi_iter", NULL, 0)
+	    + dt_cg_ctf_offsetof("struct bvec_iter", "bi_sector", &siz, 0);
+	siz = bpf_ldst_size(siz, 1);
+	emit(dlp, BPF_STORE(siz, BPF_REG_6, off, BPF_REG_0));
+
+	/*
+	 * bio.bi_bdev = 0;
+	 */
+	off = dt_cg_ctf_offsetof("struct bio", "bi_bdev", &siz, 1);
+	if (off == -1)
+		off = dt_cg_ctf_offsetof("struct bio", "bi_disk", &siz, 0);
+	siz = bpf_ldst_size(siz, 1);
+	emit(dlp, BPF_STORE_IMM(siz, BPF_REG_6, off, 0));
+
+	/* Store a pointer to the fake bio in arg0. */
+	emit(dlp, BPF_STORE(BPF_DW, BPF_REG_7, DMST_ARG(0), BPF_REG_6));
+}
+
+/*
+ * For NFS events, we have to construct a fake struct bio, which we have to
  * populate from the nfs_pgio_header argument the underlying probe provides.
  */
-static void io_nfs_args(dt_pcb_t *pcb, dt_irlist_t *dlp, uint_t exitlbl,
-			const char *prb, const char *uprb)
+static void io_nfs_args_v2(dt_pcb_t *pcb, dt_irlist_t *dlp, uint_t exitlbl,
+			   const char *prb, const char *uprb)
 {
 	int	off;
 	size_t	siz;
@@ -411,6 +500,7 @@ static void io_xfs_args(dt_pcb_t *pcb, dt_irlist_t *dlp, uint_t exitlbl)
  */
 static int trampoline(dt_pcb_t *pcb, uint_t exitlbl)
 {
+	dtrace_hdl_t	*dtp = pcb->pcb_hdl;
 	dt_irlist_t	*dlp = &pcb->pcb_ir;
 	dt_probe_t	*prp = pcb->pcb_probe;
 	dt_probe_t	*uprp = pcb->pcb_parent_probe;
@@ -420,13 +510,12 @@ static int trampoline(dt_pcb_t *pcb, uint_t exitlbl)
 	 * we need to synthesize one.
 	 */
 	if (strcmp(uprp->desc->mod, "nfs") == 0) {
-		/*
-		 * If the underlying probe is an FBT probe, we pass function
-		 * name.  Otherwise, pass probe name.
-		 */
-		io_nfs_args(pcb, dlp, exitlbl, prp->desc->prb,
-			    strcmp(uprp->desc->prb, "entry") == 0
-				? uprp->desc->fun : uprp->desc->prb);
+		if (dtp->dt_kernver < DT_VERSION_NUMBER(5, 6, 0))
+			io_nfs_args_v1(pcb, dlp, exitlbl, prp->desc->prb,
+				       uprp->desc->prb);
+		else
+			io_nfs_args_v2(pcb, dlp, exitlbl, prp->desc->prb,
+				       uprp->desc->prb);
 		goto done;
 	} else if (strcmp(uprp->desc->mod, "xfs") == 0) {
 		io_xfs_args(pcb, dlp, exitlbl);

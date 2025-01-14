@@ -18,7 +18,7 @@ minsize=$((filesize / 10 * 9))
 fstype=xfs
 # file system-specific options
 fsoptions="defaults,atime,diratime,nosuid,nodev"
-iodir=$tmpdir/test-$fstype-io
+iodir=$tmpdir/test-$fstype-io-local.$$
 tempfile=`mktemp -u -p $iodir`
 
 trap "umount $iodir; rmdir $iodir; rm -f $iodir.img" QUIT EXIT

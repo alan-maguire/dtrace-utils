@@ -105,9 +105,19 @@ for nusdt in "" "-xnusdtprobes=40" "-xnusdtprobes=39"; do
 		@[probeprov, probemod, probefunc, probename] = count();
 	}' &
 	dtpid=$!
-	sleep 2
-	if [[ ! -d /proc/$dtpid ]]; then
-		echo ERROR dtrace died
+
+	# Wait a little for dtrace to start up.
+
+	iter=$((timeout / 4))
+	while [ $iter -gt 0 ]; do
+		sleep 1
+		if [ -e dtrace.out ]; then
+			break
+		fi
+		iter=$((iter - 1))
+	done
+	if [[ $iter -eq 0 ]]; then
+		echo ERROR starting DTrace job
 		cat dtrace.out
 		exit 1
 	fi

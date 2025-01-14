@@ -15,7 +15,7 @@ filesize=$((1024*$nblocks))
 fstype=xfs
 # file system-specific options
 fsoptions="defaults,atime,diratime,nosuid,nodev"
-iodir=$tmpdir/test-$fstype-io
+iodir=$tmpdir/test-$fstype-io-wait.$$
 tempfile=`mktemp -u -p $iodir`
 
 trap "umount $iodir; rmdir $iodir; rm -f $iodir.img" QUIT EXIT

@@ -57,7 +57,7 @@ main(int argc, char **argv)
 	}
 
 	/* wait for probes to get set up */
-	usleep(100000);
+	usleep(500 * 1000);
 
 	/* in phase 2, just loop over probe "bar" a fixed number of times */
 	for (i = 0; i < 10; i++) {

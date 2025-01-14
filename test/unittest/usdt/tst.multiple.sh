@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Oracle Linux DTrace.
-# Copyright (c) 2006, 2023, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2006, 2024, Oracle and/or its affiliates. All rights reserved.
 # Licensed under the Universal Permissive License v 1.0 as shown at
 # http://oss.oracle.com/licenses/upl.
 #
@@ -41,7 +41,12 @@ cat > test.c <<EOF
 int
 main(int argc, char **argv)
 {
-	sleep(5); /* Until proper synchronization is implemented. */
+	/* Wait for probes to be enabled. */
+	while (! TEST_PROV_GO_ENABLED());
+
+	/* Allow a generous delay. (Not all probes are enabled instantaneously.) */
+	sleep(2);
+
 	TEST_PROV_GO();
 	TEST_PROV_GO();
 	TEST_PROV_GO();

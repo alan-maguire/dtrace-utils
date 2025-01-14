@@ -87,8 +87,8 @@ Requires:     libdtrace-ctf >= 1.1.0
 BuildRequires: libdtrace-ctf-devel >= 1.1.0
 %endif
 Summary:      DTrace user interface.
-Version:      2.0.1
-Release:      0%{?dist}
+Version:      2.0.2
+Release:      1%{?dist}
 Source:       dtrace-%{version}.tar.bz2
 BuildRoot:    %{_tmppath}/%{name}-%{version}-build
 ExclusiveArch:    x86_64 aarch64
@@ -268,10 +268,27 @@ systemctl start dtprobed || :
 %{_libdir}/dtrace/testsuite
 
 %changelog
+* Mon Nov 11 2024 Kris Van Hees <kris.van.hees@oracle.com> - 2.0.2-1
+- Translators to support kernels 6.10 and later.
+- FBT return probe argument support.
+- The print() action is augmented with type information.  (Alan Maguire)
+- Support to discover and trace USDT probes after a tracing session has
+  started.  (Eugene Loh, Nick Alcock)
+- USDT probe argument support (translated types, mapping).  (Nick Alcock)
+- Installation locations are now configurable.  (Nick Alcock)
+- Valgrind is no longer a required build dependency.  (Nick Alcock)
+- Self-grabs have been improved.  (Nick Alcock)
+- New provider: rawfbt.  (Kris Van Hees)
+- Various bug fixes.  (Nick Alcock, Eugene Loh, Alan Maguire, Kris Van Hees)
+- Various testsuite fixes and improvements.
+  (Nick Alcock, Sam James, Eugene Loh, Kris Van Hees)
+- Various code improvements.  (Nick Alcock, Eugene Loh, Kris Van Hees)
+  [Orabug: 37274251]
+
 * Mon May  6 2024 Kris Van Hees <kris.van.hees@oracle.com> - 2.0.1-1
 - Implement FBT probes with fentry/fexit tracepoints
 - Provide argument info for FBT probes.
-- Provide pre-generated translator files sets
+- Provide pre-generated translator files sets. [Orabug: 36504847]
 
 * Tue Mar  5 2024 Kris Van Hees <kris.van.hees@oracle.com> - 2.0.0-1.14
 - Implement provider: io.  (Eugene Loh, Kris Van Hees)

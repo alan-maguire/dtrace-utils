@@ -45,9 +45,20 @@ testprov*4:::bar
 	@[pid, 3] = sum(pid % 100);
 }' &
 dtpid=$!
-sleep 2
-if [[ ! -d /proc/$dtpid ]]; then
-	echo ERROR dtrace died
+
+# Wait up to half of the timeout period for dtrace to start up.
+
+iter=$((timeout / 2))
+while [ $iter -gt 0 ]; do
+	sleep 1
+	if [ -e dtrace.out ]; then
+		break
+	fi
+	iter=$((iter - 1))
+done
+if [[ $iter -eq 0 ]]; then
+	echo ERROR starting DTrace job
+	cat dtrace.out
 	exit 1
 fi
 

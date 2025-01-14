@@ -34,9 +34,20 @@ testprov*:::foo
 	raise(SIGUSR1);
 }' &
 dtpid=$!
-sleep 4
-if [[ ! -d /proc/$dtpid ]]; then
-	echo ERROR dtrace died prematurely
+
+# Wait up to half of the timeout period for dtrace to start up.
+
+iter=$((timeout / 2))
+while [ $iter -gt 0 ]; do
+	sleep 1
+	if [ -e dtrace.out ]; then
+		break
+	fi
+	iter=$((iter - 1))
+done
+if [[ $iter -eq 0 ]]; then
+	echo ERROR starting DTrace job
+	cat dtrace.out
 	exit 1
 fi
 

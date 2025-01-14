@@ -1,3 +1,126 @@
+2.0.2-1 (Dec 6th, 2024)
+-----------------------
+
+New features:
+
+ - Translators for kernel versions 6.10 and beyond have been added.  This
+   ensures translator support through (at least) 6.12 kernels.
+
+ - FBT return probes based on fexit probes will now report return values.
+
+ - The print() action has been enhanced with type information for its argument.
+
+ - USDT probes that are discovered after tracing started (either because of the
+   use of wildcards in the probe specification or with the -Z option) are now
+   supported.
+
+ - USDT probe argument type support has been implemented, incl. translated
+   types and argument mapping.
+
+ - A manpage for dtprobed has been added.
+
+ - The rawfbt provider has been implemented.  This is a new provider that
+   allows tracing of all functions that are available through kprobes.  This
+   includes <func>.<suffix> function names that are the result of compiler
+   optimizations.
+
+Bugfixes:
+
+ - Since BPF assemvbler source is written in 'normal' assembler syntax, the
+   -masm=normal option is to be passed to BPF gcc invocations.
+
+ - Parsing of bpf_helper_defs.h is more tolerant of version changes.
+
+ - The BPF-to-CTF conversion works for kernel modules.
+
+ - DTrace will no longer try to obtain a return value for void functions.
+
+ - The stddev() aggregation function carry-over computation has been corrected.
+
+ - The clear() action will now only clear the aggregation for which is it
+   called.
+
+ - ERROR probe firings were corrupting probe arguments for the probe whose
+   execution triggered the error.
+
+ - ERROR probe firings did not always report the correct probe id.
+
+ - Relocations in the ERROR probe program were being done too early, causing
+   some values to be incorrect.
+
+ - Buffer size calculations have been corrected.
+
+ - Casting will no longer render an lvalue immutable.
+
+ - Multiple USDT providers in a single ELF object now work.
+
+ - Self-grab support has been improved.
+
+ - The umod/usym/uaddr actions have been improved.
+
+ - Various memory leaks have been resolved.
+
+User-visible changes:
+
+ - The header files to support USDT probes (sdt.h, etc) have been moved to
+   /usr/lib64/dtrace/include/sys.  Support for pkg-config has been added to
+   have a convenient way to obtain installation paths for libraries and
+   header files.
+
+ - DTrace will provide an appropriate error message when it is executed in
+   a mode that requires root privileges.
+
+ - The manpages for dtrace and dtprobed have been reworked to use better
+   markup.
+
+Internal changes:
+
+ - Keys for @[mod()], @[sym()], etc are now consolidated where possible.
+
+ - Trace data consumption will now process only one set of records per
+   iteration, to avoid possible starvation issues.
+
+ - Various pieces of dead code have been removed.
+
+ - The association between probes and clauses now operates at the statement
+   level.  This more accurately reflects the structure of tracing programs, and
+   is needed to support discovery of probes after tracing has started.
+
+ - The EPID concept has been deprecated.  A value for the 'epid' built-in
+   variable is still generated for backwards compatibility.  The value has no
+   semantic meaning, and simply satisfies the requirement that it is unique for
+   every instance of a particular probe.
+
+ - BPF tracing programs can now contain clauses that *may* be used by probes
+   that are discovered after tracing already started.
+
+ - The internal implementation of pid probes, USDT probes, and is-enabled USDT
+   probes has been consolidated (and simplified) in a single trampoline for the
+   underlying uprobe.
+
+ - DTrace (specifically dtprobed) no longer depends on libsystemd.  It can
+   still report its activity status to systemd.
+
+Testsuite changes:
+
+ - Many testcases have been adjust to not depend on optional features, and
+   to have more predictable behaviour.
+
+ - Use of bash and gawk throughout the testsuite has been made more consistent.
+
+Build-time:
+
+ - All installation paths can be configured to support flexible filesystem
+   layouts for distributions.
+
+ - Support for valgrind is now optional.
+
+Known problems:
+
+ - Enabling a large amount of probes (in the order of > 50,000) consumes quite
+   a significant amount of memory to hold the BPF programs, which may trigger
+   the OOM killer in the kernel.
+
 2.0.1-1 (May 6th, 2024)
 -----------------------
 
