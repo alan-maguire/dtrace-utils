@@ -8,7 +8,7 @@
 #               and generated intermediate representation.
 #
 # Oracle Linux DTrace.
-# Copyright (c) 2011, 2024, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2011, 2025, Oracle and/or its affiliates. All rights reserved.
 # Licensed under the Universal Permissive License v 1.0 as shown at
 # http://oss.oracle.com/licenses/upl.
 
@@ -589,8 +589,9 @@ else
         exit 1
     fi
 fi
-export test_cppflags
-export test_ldflags
+core_raw_dt_flags="$test_cppflags"
+export test_cppflags="$test_cppflags -fno-lto"
+export test_ldflags="$test_ldflags -fno-lto"
 export test_libdir
 
 # Figure out if the preprocessor supports -fno-diagnostics-show-option: if it
@@ -1085,7 +1086,7 @@ for dt in $dtrace; do
         # Default and substitute in flags.  The raw_dt_flags apply even to a
         # sh invocation.
 
-        raw_dt_flags="$test_cppflags"
+        raw_dt_flags="$core_raw_dt_flags"
 
         expected_tag=
         if [[ $testonly =~ ^err\.D_ ]]; then

@@ -111,7 +111,7 @@ translator devinfo_t < struct buffer_head *B > {
 	    : B->__bh_bdev_dev.driver->name
 		? stringof(B->__bh_bdev_dev.driver->name)
 		: "<none>";
-	dev_statname = B->b_bdev->__bdev_partno == 0
+	dev_statname = (B->b_bdev->__bdev_partno) == 0
 			? stringof(B->b_bdev->bd_disk->disk_name)
 			: strjoin(stringof(B->b_bdev->bd_disk->disk_name),
 				  lltostr(B->b_bdev->__bdev_partno));
@@ -135,7 +135,7 @@ translator devinfo_t < struct bio *B > {
 					getmajor(B->__bio_part_dev) % 255
 				   ]->name);
 	dev_statname = B->__disk_chk == NULL ? "nfs" :
-	    B->__bio_partno == 0 ? stringof(B->__disk->disk_name) :
+	    (B->__bio_partno) == 0 ? stringof(B->__disk->disk_name) :
 	    strjoin(stringof(B->__disk->disk_name), lltostr(B->__bio_partno));
 	dev_pathname = B->__disk_chk == NULL ? "<nfs>" : "<unknown>";
 };

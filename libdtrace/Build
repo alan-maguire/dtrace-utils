@@ -1,5 +1,5 @@
 # Oracle Linux DTrace.
-# Copyright (c) 2011, 2024, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2011, 2025, Oracle and/or its affiliates. All rights reserved.
 # Licensed under the Universal Permissive License v 1.0 as shown at
 # http://oss.oracle.com/licenses/upl.
 
@@ -120,7 +120,6 @@ dt_prov_sdt.c_CFLAGS := -Wno-pedantic
 dt_prov_syscall.c_CFLAGS := -Wno-pedantic
 dt_prov_uprobe.c_CFLAGS := -Wno-pedantic
 dt_debug.c_CFLAGS := -Wno-prio-ctor-dtor
-drti.c_CFLAGS := -Wno-prio-ctor-dtor
 
 SHORTKERNELS := $(foreach kernel,$(KERNELS),$(shell printf %s $(kernel) | sed -e 's/\([0-9]*\)\.\([0-9]*\)\.\([0-9]*\).*$$/\1.\2.\3/'))
 
@@ -248,12 +247,12 @@ DRTI32_OBJ = $(if $(NATIVE_BITNESS_ONLY),,$(objdir)/dlibs/drti/drti32.o)
 objs: $(DRTI_OBJ) $(DRTI32_OBJ)
 $(BUILD_DRTI_OBJ): $(libdtrace-build_DIR)drti.c
 	$(call describe-target,CC,$<)
-	$(CC) $(filter-out --coverage,$(CFLAGS)) -fPIC $(CPPFLAGS) $(libdtrace-build_CPPFLAGS) -MP -MMD -c -o $@ $<
+	$(CC) $(filter-out --coverage,$(CFLAGS)) -fPIC $(CPPFLAGS) $(libdtrace-build_CPPFLAGS) -MP -MMD -Wno-prio-ctor-dtor -fno-lto -c -o $@ $<
 $(DRTI_OBJ): $(BUILD_DRTI_OBJ) $(objdir)/dlibs/.dir.stamp
 	ln -sf $(BUILD_DRTI_OBJ) $(DRTI_OBJ)
 $(BUILD_DRTI32_OBJ): $(libdtrace-build_DIR)drti.c
 	$(call describe-target,CC-32,$<)
-	$(CC) $(filter-out --coverage,$(CFLAGS)) -m32 -fPIC $(CPPFLAGS) $(libdtrace-build_CPPFLAGS) -MP -MMD -c -o $@ $<
+	$(CC) $(filter-out --coverage,$(CFLAGS)) -m32 -fPIC $(CPPFLAGS) $(libdtrace-build_CPPFLAGS) -MP -MMD -Wno-prio-ctor-dtor -fno-lto -c -o $@ $<
 $(DRTI32_OBJ): $(BUILD_DRTI32_OBJ) $(objdir)/dlibs/.dir.stamp
 	ln -sf $(BUILD_DRTI32_OBJ) $(DRTI32_OBJ)
 

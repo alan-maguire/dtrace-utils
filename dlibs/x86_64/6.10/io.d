@@ -111,7 +111,7 @@ translator devinfo_t < struct buffer_head *B > {
 	    : B->b_bdev->bd_disk->part0->bd_device.driver->name
 		? stringof(B->b_bdev->bd_disk->part0->bd_device.driver->name)
 		: "<none>";
-	dev_statname = B->b_bdev->__bd_flags.counter & 255 == 0
+	dev_statname = (B->b_bdev->__bd_flags.counter & 255) == 0
 			? stringof(B->b_bdev->bd_disk->disk_name)
 			: strjoin(stringof(B->b_bdev->bd_disk->disk_name),
 				  lltostr(B->b_bdev->__bd_flags.counter & 255));
@@ -135,7 +135,7 @@ translator devinfo_t < struct bio *B > {
 					getmajor(B->bi_bdev->bd_dev) % 255
 				   ]->name);
 	dev_statname = B->bi_bdev == NULL ? "nfs" :
-	    B->bi_bdev->__bd_flags.counter & 255 == 0 ? stringof(B->bi_bdev->bd_disk->disk_name) :
+	    (B->bi_bdev->__bd_flags.counter & 255) == 0 ? stringof(B->bi_bdev->bd_disk->disk_name) :
 	    strjoin(stringof(B->bi_bdev->bd_disk->disk_name), lltostr(B->bi_bdev->__bd_flags.counter & 255));
 	dev_pathname = B->bi_bdev == NULL ? "<nfs>" : "<unknown>";
 };

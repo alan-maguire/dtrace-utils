@@ -1,6 +1,6 @@
 /*
  * Oracle Linux DTrace; DOF-consumption and storage daemon.
- * Copyright (c) 2022, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, 2025, Oracle and/or its affiliates. All rights reserved.
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * http://oss.oracle.com/licenses/upl.
  */
@@ -769,7 +769,13 @@ process_dof(pid_t pid, int out, int in, dev_t dev, ino_t inum, dev_t exec_dev,
 		if (!provider) {
 			if (tries++ > 1)
 				goto err;
+			/*
+			 * Tidying reopens the parser in and out pipes: catch
+			 * up with this.
+			 */
 			dof_parser_tidy(1);
+			out = parser_out_pipe;
+			in = parser_in_pipe;
 			continue;
 		}
 		if (provider->type != DIT_PROVIDER && provider->type != DIT_EOF)
