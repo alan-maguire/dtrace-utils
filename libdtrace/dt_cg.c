@@ -1601,12 +1601,11 @@ static int
 dt_cg_store_val(dt_pcb_t *pcb, dt_node_t *dnp, dtrace_actkind_t kind,
 		dt_pfargv_t *pfp, int arg)
 {
-	dtrace_diftype_t	vtype;
 	dtrace_hdl_t		*dtp = pcb->pcb_hdl;
 	dt_irlist_t		*dlp = &pcb->pcb_ir;
 	dt_regset_t		*drp = pcb->pcb_regs;
 	uint_t			off;
-	size_t			size;
+	size_t			size, align;
 	int			not_null = 0;
 	int			cflags = pcb->pcb_stmt->dtsd_clauseflags;
 
@@ -1619,10 +1618,14 @@ dt_cg_store_val(dt_pcb_t *pcb, dt_node_t *dnp, dtrace_actkind_t kind,
 			longjmp(yypcb->pcb_jmpbuf, EDT_NOREG);
 		emit(dlp, BPF_MOV_IMM(dnp->dn_reg, dnp->dn_ident->di_id));
 		size = sizeof(dnp->dn_ident->di_id);
+		align = size;
 	} else {
+		dtrace_diftype_t	vtype;
+
 		dt_cg_node(dnp, dlp, drp);
 		dt_node_diftype(dtp, dnp, &vtype);
 		size = vtype.dtdt_size;
+		align = vtype.dtdt_align;
 
 		/*
 		 * A DEREF of a REF node does not get resolved in dt_cg_node()
@@ -1664,7 +1667,7 @@ dt_cg_store_val(dt_pcb_t *pcb, dt_node_t *dnp, dtrace_actkind_t kind,
 
 	if (dt_node_is_scalar(dnp) || dt_node_is_float(dnp) ||
 	    dnp->dn_kind == DT_NODE_AGG) {
-		off = dt_rec_add(dtp, dt_cg_fill_gap, kind, size, size, pfp,
+		off = dt_rec_add(dtp, dt_cg_fill_gap, kind, size, align, pfp,
 				 arg);
 
 		emit(dlp, BPF_STOREX(size, BPF_REG_9, off, dnp->dn_reg));
@@ -1678,8 +1681,8 @@ dt_cg_store_val(dt_pcb_t *pcb, dt_node_t *dnp, dtrace_actkind_t kind,
 			dt_cg_check_ptr_arg(dlp, drp, dnp, NULL);
 
 		TRACE_REGSET("store_val(): Begin ");
-		off = dt_rec_add(dtp, dt_cg_fill_gap, kind, size + 1,
-				 1, pfp, arg);
+		off = dt_rec_add(dtp, dt_cg_fill_gap, kind, size + 1, 1, pfp,
+				 arg);
 
 		/*
 		 * Copy the string data (no more than STRSIZE + 1 bytes) to the
@@ -1706,7 +1709,8 @@ dt_cg_store_val(dt_pcb_t *pcb, dt_node_t *dnp, dtrace_actkind_t kind,
 
 	/* Handle tracing of by-ref values (arrays, struct, union). */
 	if ((dnp->dn_flags & DT_NF_REF) || (arg & DT_NF_REF)) {
-		off = dt_rec_add(dtp, dt_cg_fill_gap, kind, size, 2, pfp, arg);
+		off = dt_rec_add(dtp, dt_cg_fill_gap, kind, size, align, pfp,
+				 arg);
 
 		TRACE_REGSET("store_val(): Begin ");
 		if (!not_null)
@@ -3197,6 +3201,7 @@ dt_cg_load_var(dt_node_t *dnp, dt_irlist_t *dlp, dt_regset_t *drp)
 {
 	dt_ident_t	*idp = dt_ident_resolve(dnp->dn_ident);
 	dt_ident_t	*fnp;
+	uint32_t	idx = UINT32_MAX;
 
 	idp->di_flags |= DT_IDFLG_DIFR;
 
@@ -3298,15 +3303,62 @@ dt_cg_load_var(dt_node_t *dnp, dt_irlist_t *dlp, dt_regset_t *drp)
 		return;
 	}
 
-	/* built-in variables */
+	/* built-in variables (note: args[] is handled in dt_cg_array_op) */
+	if (idp->di_id >= DIF_VAR_ARG0 && idp->di_id <= DIF_VAR_ARG9) {
+		fnp = dt_dlib_get_func(yypcb->pcb_hdl, "dt_bvar_args");
+		idx = idp->di_id - DIF_VAR_ARG0;
+	} else if (idp->di_id == DIF_VAR_PROBEPROV ||
+		   idp->di_id == DIF_VAR_PROBEMOD ||
+		   idp->di_id == DIF_VAR_PROBEFUNC ||
+		   idp->di_id == DIF_VAR_PROBENAME) {
+		fnp = dt_dlib_get_func(yypcb->pcb_hdl, "dt_bvar_probedesc");
+		idx = idp->di_id;
+	} else if (idp->di_id == DIF_VAR_EXECARGS) {
+		fnp = dt_dlib_get_func(yypcb->pcb_hdl, "dt_bvar_execargs");
+		assert(fnp != NULL);
+
+		if ((dnp->dn_reg = dt_regset_alloc(drp)) == -1)
+			longjmp(yypcb->pcb_jmpbuf, EDT_NOREG);
+
+		dt_cg_tstring_alloc(yypcb, dnp);
+
+		if (dt_regset_xalloc_args(drp) == -1)
+			longjmp(yypcb->pcb_jmpbuf, EDT_NOREG);
+
+		dt_cg_access_dctx(BPF_REG_1, dlp, drp, -1);
+		emit(dlp,  BPF_LOAD(BPF_DW, BPF_REG_2, BPF_REG_1, DCTX_MEM));
+		emit(dlp,  BPF_ALU64_IMM(BPF_ADD, BPF_REG_2, dnp->dn_tstring->dn_value));
+		dt_regset_xalloc(drp, BPF_REG_0);
+		emite(dlp, BPF_CALL_FUNC(fnp->di_id), fnp);
+		dt_regset_free_args(drp);
+
+		dt_cg_check_fault(yypcb);
+
+		emit(dlp,  BPF_MOV_REG(dnp->dn_reg, BPF_REG_0));
+		dt_regset_free(drp, BPF_REG_0);
+
+		return;
+	} else {
+		char	*fn;
+
+		if (asprintf(&fn, "dt_bvar_%s", idp->di_name) == -1)
+			longjmp(yypcb->pcb_jmpbuf, EDT_NOMEM);
+
+		fnp = dt_dlib_get_func(yypcb->pcb_hdl, fn);
+		free(fn);
+	}
+
+	/* No implementing function found - report ILLOP. */
+	if (fnp == NULL)
+		xyerror(D_IDENT_UNDEF,
+			"built-in variable '%s' not implemented", idp->di_name);
+
 	if (dt_regset_xalloc_args(drp) == -1)
 		longjmp(yypcb->pcb_jmpbuf, EDT_NOREG);
 
 	dt_cg_access_dctx(BPF_REG_1, dlp, drp, -1);
-	emit(dlp, BPF_MOV_IMM(BPF_REG_2, idp->di_id));
-	emit(dlp, BPF_MOV_IMM(BPF_REG_3, 0));
-	fnp = dt_dlib_get_func(yypcb->pcb_hdl, "dt_get_bvar");
-	assert(fnp != NULL);
+	if (idx != UINT32_MAX)
+		emit(dlp, BPF_MOV_IMM(BPF_REG_2, idx));
 	dt_regset_xalloc(drp, BPF_REG_0);
 	emite(dlp, BPF_CALL_FUNC(fnp->di_id), fnp);
 	dt_regset_free_args(drp);
@@ -5065,7 +5117,7 @@ dt_cg_array_op(dt_node_t *dnp, dt_irlist_t *dlp, dt_regset_t *drp)
 	dt_probe_t	*prp = yypcb->pcb_probe;
 	uintmax_t	saved = dnp->dn_args->dn_value;
 	dt_ident_t	*idp = dnp->dn_ident;
-	dt_ident_t	*fidp = dt_dlib_get_func(yypcb->pcb_hdl, "dt_get_bvar");
+	dt_ident_t	*fidp = dt_dlib_get_func(yypcb->pcb_hdl, "dt_bvar_args");
 	size_t		size;
 	int		n;
 	int		ustr = 0;
@@ -5135,8 +5187,7 @@ dt_cg_array_op(dt_node_t *dnp, dt_irlist_t *dlp, dt_regset_t *drp)
 	if (dt_regset_xalloc_args(drp) == -1)
 		longjmp(yypcb->pcb_jmpbuf, EDT_NOREG);
 	dt_cg_access_dctx(BPF_REG_1, dlp, drp, -1);
-	emit(dlp, BPF_MOV_IMM(BPF_REG_2, idp->di_id));
-	emit(dlp, BPF_MOV_REG(BPF_REG_3, dnp->dn_reg));
+	emit(dlp, BPF_MOV_REG(BPF_REG_2, dnp->dn_reg));
 	dt_regset_xalloc(drp, BPF_REG_0);
 	emite(dlp, BPF_CALL_FUNC(fidp->di_id), fidp);
 	dt_regset_free_args(drp);

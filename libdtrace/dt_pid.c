@@ -53,9 +53,7 @@ typedef struct dt_pid_probe {
 	dev_t dpp_dev;
 	ino_t dpp_inum;
 	const char *dpp_fname;
-	uintptr_t dpp_pc;
 	uintptr_t dpp_vaddr;
-	size_t dpp_size;
 	Lmid_t dpp_lmid;
 	uint_t dpp_nmatches;
 	GElf_Sym dpp_last;
@@ -106,7 +104,7 @@ dt_pid_error(dtrace_hdl_t *dtp, dt_pcb_t *pcb, dt_proc_t *dpr,
 
 static int
 dt_pid_create_one_probe(struct ps_prochandle *P, dtrace_hdl_t *dtp,
-    pid_probespec_t *psp, const GElf_Sym *symp, pid_probetype_t type)
+    pid_probespec_t *psp, pid_probetype_t type)
 {
 	const dt_provider_t	*pvp = dtp->dt_prov_pid;
 
@@ -186,8 +184,7 @@ dt_pid_per_sym(dt_pid_probe_t *pp, const GElf_Sym *symp, const char *func)
 	psp->pps_off = symp->st_value - pp->dpp_vaddr;
 
 	if (!isdash && gmatch("return", pp->dpp_name)) {
-		if (dt_pid_create_one_probe(pp->dpp_pr, dtp, psp, symp,
-		    DTPPT_RETURN) < 0) {
+		if (dt_pid_create_one_probe(pp->dpp_pr, dtp, psp, DTPPT_RETURN) < 0) {
 			rc = dt_pid_error(
 				dtp, pcb, dpr, D_PROC_CREATEFAIL,
 				"failed to create return probe for '%s': %s",
@@ -199,8 +196,7 @@ dt_pid_per_sym(dt_pid_probe_t *pp, const GElf_Sym *symp, const char *func)
 	}
 
 	if (!isdash && gmatch("entry", pp->dpp_name)) {
-		if (dt_pid_create_one_probe(pp->dpp_pr, dtp, psp, symp,
-		    DTPPT_ENTRY) < 0) {
+		if (dt_pid_create_one_probe(pp->dpp_pr, dtp, psp, DTPPT_ENTRY) < 0) {
 			rc = dt_pid_error(
 				dtp, pcb, dpr, D_PROC_CREATEFAIL,
 				"failed to create entry probe for '%s': %s",
@@ -233,8 +229,8 @@ dt_pid_per_sym(dt_pid_probe_t *pp, const GElf_Sym *symp, const char *func)
 
 		psp->pps_nameoff = off;
 		psp->pps_off = symp->st_value - pp->dpp_vaddr + off;
-		if (dt_pid_create_one_probe(pp->dpp_pr, pp->dpp_dtp,
-					psp, symp, DTPPT_OFFSETS) < 0) {
+		if (dt_pid_create_one_probe(pp->dpp_pr, dtp,
+					psp, DTPPT_OFFSETS) < 0) {
 			rc = dt_pid_error(
 				dtp, pcb, dpr, D_PROC_CREATEFAIL,
 				"failed to create probes at '%s+0x%llx': %s",
@@ -364,8 +360,8 @@ dt_pid_per_sym(dt_pid_probe_t *pp, const GElf_Sym *symp, const char *func)
 
 			psp->pps_nameoff = off;
 			psp->pps_off = symp->st_value - pp->dpp_vaddr + off;
-			if (dt_pid_create_one_probe(pp->dpp_pr, pp->dpp_dtp,
-						psp, symp, DTPPT_OFFSETS) >= 0)
+			if (dt_pid_create_one_probe(pp->dpp_pr, dtp,
+						psp, DTPPT_OFFSETS) >= 0)
 				nmatches++;
 		}
 
@@ -436,7 +432,7 @@ dt_pid_per_mod(void *arg, const prmap_t *pmp, const char *obj)
 	if (obj == NULL)
 		return 0;
 
-	dt_Plmid(pp->dpp_dtp, pid, pmp->pr_vaddr, &pp->dpp_lmid);
+	dt_Plmid(dtp, pid, pmp->pr_vaddr, &pp->dpp_lmid);
 
 	pp->dpp_dev = pmp->pr_dev;
 	pp->dpp_inum = pmp->pr_inum;
@@ -468,7 +464,7 @@ dt_pid_per_mod(void *arg, const prmap_t *pmp, const char *obj)
 		 * just fail silently in the hopes that some other object will
 		 * contain the desired symbol.
 		 */
-		if (dt_Pxlookup_by_name(pp->dpp_dtp, pid, pp->dpp_lmid, obj,
+		if (dt_Pxlookup_by_name(dtp, pid, pp->dpp_lmid, obj,
 					pp->dpp_func, &sym, NULL) != 0) {
 			if (strcmp("-", pp->dpp_func) == 0) {
 				sym.st_name = 0;
@@ -498,17 +494,17 @@ dt_pid_per_mod(void *arg, const prmap_t *pmp, const char *obj)
 		 * dynamically rewritten, and, so, inherently dicey to
 		 * instrument.
 		 */
-		if (dt_Pwritable_mapping(pp->dpp_dtp, pid, sym.st_value))
+		if (dt_Pwritable_mapping(dtp, pid, sym.st_value))
 			return 0;
 
-		dt_Plookup_by_addr(pp->dpp_dtp, pid, sym.st_value,
+		dt_Plookup_by_addr(dtp, pid, sym.st_value,
 				   &pp->dpp_func, &sym);
 
 		return dt_pid_per_sym(pp, &sym, pp->dpp_func);
 	} else {
 		uint_t nmatches = pp->dpp_nmatches;
 
-		if (dt_Psymbol_iter_by_addr(pp->dpp_dtp, pid, obj, PR_SYMTAB,
+		if (dt_Psymbol_iter_by_addr(dtp, pid, obj, PR_SYMTAB,
 					    BIND_ANY | TYPE_FUNC,
 					    dt_pid_sym_filt, pp) == 1)
 			return 1;
@@ -518,8 +514,7 @@ dt_pid_per_mod(void *arg, const prmap_t *pmp, const char *obj)
 			 * If we didn't match anything in the PR_SYMTAB, try
 			 * the PR_DYNSYM.
 			 */
-			if (dt_Psymbol_iter_by_addr(
-					pp->dpp_dtp, pid, obj,
+			if (dt_Psymbol_iter_by_addr(dtp, pid, obj,
 					PR_DYNSYM, BIND_ANY | TYPE_FUNC,
 					dt_pid_sym_filt, pp) == 1)
 				return 1;
