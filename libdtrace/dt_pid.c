@@ -1,6 +1,6 @@
 /*
  * Oracle Linux DTrace.
- * Copyright (c) 2010, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2025, Oracle and/or its affiliates. All rights reserved.
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * http://oss.oracle.com/licenses/upl.
  */
@@ -155,7 +155,6 @@ dt_pid_per_sym(dt_pid_probe_t *pp, const GElf_Sym *symp, const char *func)
 	uint_t nmatches = 0;
 	ulong_t sz;
 	int glob, rc = 0;
-	int isdash = strcmp("-", func) == 0;
 	pid_t pid;
 
 	/*
@@ -183,7 +182,46 @@ dt_pid_per_sym(dt_pid_probe_t *pp, const GElf_Sym *symp, const char *func)
 	psp->pps_nameoff = 0;
 	psp->pps_off = symp->st_value - pp->dpp_vaddr;
 
-	if (!isdash && gmatch("return", pp->dpp_name)) {
+	/*
+	 * The special function "-" means the probe name is an absolute
+	 * virtual address.
+	 */
+	if (strcmp("-", func) == 0) {
+		char *end;
+		GElf_Sym sym;
+
+		off = strtoull(pp->dpp_name, &end, 16);
+		if (*end != '\0') {
+			rc = dt_pid_error(dtp, pcb, dpr, D_PROC_NAME,
+					  "'%s' is an invalid probe name",
+					  pp->dpp_name);
+			goto out;
+		}
+
+		psp->pps_nameoff = off;
+
+		if (dt_Plookup_by_addr(dtp, pid, off, (const char **)&psp->pps_fun, &sym)) {
+			rc = dt_pid_error(dtp, pcb, dpr, D_PROC_NAME,
+			     "failed to lookup 0x%lx in module '%s'", off, pp->dpp_mod);
+			if (psp->pps_fun != func && psp->pps_fun != NULL)
+				free(psp->pps_fun);
+			goto out;
+		}
+
+		psp->pps_prb = (char*)pp->dpp_name;
+		psp->pps_off = off - pp->dpp_vaddr;
+
+		if (dt_pid_create_one_probe(pp->dpp_pr, dtp, psp, DTPPT_ABSOFFSETS) < 0)
+			rc = dt_pid_error(dtp, pcb, dpr, D_PROC_CREATEFAIL,
+			    "failed to create probes at '%s+0x%llx': %s",
+			    func, (unsigned long long)off, dtrace_errmsg(dtp, dtrace_errno(dtp)));
+		else
+			pp->dpp_nmatches++;
+		free(psp->pps_fun);
+		goto out;
+	}
+
+	if (gmatch("return", pp->dpp_name)) {
 		if (dt_pid_create_one_probe(pp->dpp_pr, dtp, psp, DTPPT_RETURN) < 0) {
 			rc = dt_pid_error(
 				dtp, pcb, dpr, D_PROC_CREATEFAIL,
@@ -195,7 +233,7 @@ dt_pid_per_sym(dt_pid_probe_t *pp, const GElf_Sym *symp, const char *func)
 		nmatches++;
 	}
 
-	if (!isdash && gmatch("entry", pp->dpp_name)) {
+	if (gmatch("entry", pp->dpp_name)) {
 		if (dt_pid_create_one_probe(pp->dpp_pr, dtp, psp, DTPPT_ENTRY) < 0) {
 			rc = dt_pid_error(
 				dtp, pcb, dpr, D_PROC_CREATEFAIL,
@@ -240,7 +278,7 @@ dt_pid_per_sym(dt_pid_probe_t *pp, const GElf_Sym *symp, const char *func)
 		}
 
 		nmatches++;
-	} else if (glob && !isdash) {
+	} else if (glob) {
 #if defined(__amd64)
 		/*
 		 * We need to step through the instructions to find their
@@ -450,30 +488,24 @@ dt_pid_per_mod(void *arg, const prmap_t *pmp, const char *obj)
 		pp->dpp_obj++;
 
 	/*
+	 * If it is the special function "-", cut to dt_pid_per_sym() now.
+	 */
+	if (strcmp("-", pp->dpp_func) == 0)
+		return dt_pid_per_sym(pp, &sym, pp->dpp_func);
+
+	/*
 	 * If pp->dpp_func contains any globbing meta-characters, we need
 	 * to iterate over the symbol table and compare each function name
 	 * against the pattern.
 	 */
 	if (!strisglob(pp->dpp_func)) {
-		/*
-		 * If we fail to lookup the symbol, try interpreting the
-		 * function as the special "-" function that indicates that the
-		 * probe name should be interpreted as a absolute virtual
-		 * address. If that fails and we were matching a specific
-		 * function in a specific module, report the error, otherwise
-		 * just fail silently in the hopes that some other object will
-		 * contain the desired symbol.
+		/* If we are matching a specific function in a specific module,
+		 * report the error, otherwise just fail silently in the hopes
+		 * that some other object will contain the desired symbol.
 		 */
 		if (dt_Pxlookup_by_name(dtp, pid, pp->dpp_lmid, obj,
 					pp->dpp_func, &sym, NULL) != 0) {
-			if (strcmp("-", pp->dpp_func) == 0) {
-				sym.st_name = 0;
-				sym.st_info =
-				    GELF_ST_INFO(STB_LOCAL, STT_FUNC);
-				sym.st_other = 0;
-				sym.st_value = 0;
-				sym.st_size = Pelf64(pp->dpp_pr) ? -1ULL : -1U;
-			} else if (!strisglob(pp->dpp_mod)) {
+			if (!strisglob(pp->dpp_mod)) {
 				return dt_pid_error(
 					dtp, pcb, dpr, D_PROC_FUNC,
 					"failed to lookup '%s' in module '%s'",
@@ -647,9 +679,10 @@ dt_pid_create_pid_probes_proc(dtrace_probedesc_t *pdp, dtrace_hdl_t *dtp,
 	if (strcmp(pp.dpp_func, "-") == 0) {
 		const prmap_t *aout, *pmp;
 
-		if (pdp->mod[0] == '\0') {
-			pp.dpp_mod = pdp->mod;
+		if (strcmp(pp.dpp_mod, "*") == 0) {
+			/* Tolerate two glob cases:  "" and "*". */
 			pdp->mod = "a.out";
+			pp.dpp_mod = pdp->mod;
 		} else if (strisglob(pp.dpp_mod) ||
 		    (aout = dt_Pname_to_map(dtp, pid, "a.out")) == NULL ||
 		    (pmp = dt_Pname_to_map(dtp, pid, pp.dpp_mod)) == NULL ||
@@ -777,33 +810,42 @@ validate_dof_record(const char *path, const dof_parsed_t *parsed,
 
 
 /*
- * Create underlying probes relating to the probespec passed on input.
+ * Create underlying probes relating to the probe description passed on input.
+ * Just set up probes relating to mappings found in this one process.
  *
- * dpr must be set and locked.  Just set up probes relating to mappings found
- * in this one process.
+ * Either the pid must be specified or else dpr must be set and locked.
  *
  * Return 0 on success or -1 on error.  (Failure to create specific underlying
  * probes is not an error.)
  */
 static int
-dt_pid_create_usdt_probes_proc(dtrace_hdl_t *dtp, dt_proc_t *dpr,
+dt_pid_create_usdt_probes_proc(dtrace_hdl_t *dtp, pid_t pid, dt_proc_t *dpr,
 			       dtrace_probedesc_t *pdp, dt_pcb_t *pcb)
 {
 	const dt_provider_t *pvp;
 	int ret = 0;
+	int dpr_caller;		/* dpr was set by caller */
 	char *probepath = NULL;
 	glob_t probeglob = {0};
 
-	assert(dpr != NULL && dpr->dpr_proc);
-	assert(MUTEX_HELD(&dpr->dpr_lock));
+	if (dpr == NULL) {
+		assert(pid != -1);
+		dpr_caller = 0;
+	} else {
+		assert(pid == -1);
+		assert(dpr->dpr_proc);
+		assert(MUTEX_HELD(&dpr->dpr_lock));
+		pid = dpr->dpr_pid;
+		dpr_caller = 1;
+	}
 
 	dt_dprintf("Scanning for usdt probes in %i matching %s:%s:%s\n",
-		   dpr->dpr_pid, pdp->mod, pdp->fun, pdp->prb);
+		   pid, pdp->mod, pdp->fun, pdp->prb);
 
 	pvp = dt_provider_lookup(dtp, "usdt");
 	assert(pvp != NULL);
 
-	if (Pstate(dpr->dpr_proc) == PS_DEAD)
+	if (dpr != NULL && Pstate(dpr->dpr_proc) == PS_DEAD)
 		return 0;
 
 	/*
@@ -830,7 +872,7 @@ dt_pid_create_usdt_probes_proc(dtrace_hdl_t *dtp, dt_proc_t *dpr,
 	assert(pvp->impl != NULL && pvp->impl->provide_probe != NULL);
 
 	if (asprintf(&probepath, "%s/probes/%i/%s/%s/%s/%s", dtp->dt_dofstash_path,
-		     dpr->dpr_pid, pdp->prv[0] == '\0' ? "*" : pdp->prv,
+		     pid, pdp->prv[0] == '\0' ? "*" : pdp->prv,
 		     pdp->mod[0] == '\0' ? "*" : pdp->mod,
 		     pdp->fun[0] == '\0' ? "*" : pdp->fun,
 		     pdp->prb[0] == '\0' ? "*" : pdp->prb) < 0)
@@ -853,6 +895,19 @@ dt_pid_create_usdt_probes_proc(dtrace_hdl_t *dtp, dt_proc_t *dpr,
 		return 0;
 	}
 
+	/* Set dpr and grab the process, if necessary. */
+	if (dpr_caller == 0) {
+		if (dt_proc_grab_lock(dtp, pid, DTRACE_PROC_WAITING |
+				      DTRACE_PROC_SHORTLIVED) < 0) {
+			dt_pid_error(dtp, pcb, NULL, D_PROC_GRAB,
+			    "failed to grab process %d", (int)pid);
+			return -1;
+		}
+		dpr = dt_proc_lookup(dtp, pid);
+		assert(dpr != NULL);
+	}
+
+	/* Loop over USDT probes. */
 	for (size_t i = 0; i < probeglob.gl_pathc; i++) {
 		char *dof_buf = NULL, *p;
 		struct stat s;
@@ -1046,10 +1101,16 @@ dt_pid_create_usdt_probes_proc(dtrace_hdl_t *dtp, dt_proc_t *dpr,
 		free(path);
 		free(dof_buf);
 		globfree(&probeglob);
+		if (dpr_caller == 0)
+			dt_proc_release_unlock(dtp, pid);
 		return -1;
 	}
 
 	globfree(&probeglob);
+	if (dpr_caller == 0) {
+		dt_pid_fix_mod(NULL, pdp, dtp, pid);
+		dt_proc_release_unlock(dtp, pid);
+	}
 	return ret;
 
 scan_err:
@@ -1232,7 +1293,6 @@ dt_pid_create_usdt_probes(dtrace_probedesc_t *pdp, dtrace_hdl_t *dtp, dt_pcb_t *
 			  + strlen(dtp->dt_dofstash_path)
 			  + strlen("/probes/");
 		pid_t pid;
-		dt_proc_t *dpr;
 		dtrace_probedesc_t pdptmp;
 
 		/* Pull out the pid. */
@@ -1242,28 +1302,15 @@ dt_pid_create_usdt_probes(dtrace_probedesc_t *pdp, dtrace_hdl_t *dtp, dt_pcb_t *
 		if (!Pexists(pid))
 			continue;
 
-		/* Grab the process. */
-		if (dt_proc_grab_lock(dtp, pid, DTRACE_PROC_WAITING |
-				      DTRACE_PROC_SHORTLIVED) < 0) {
-			dt_pid_error(dtp, pcb, NULL, D_PROC_GRAB,
-			    "failed to grab process %d", (int)pid);
-			err = 1;  // FIXME but do we want to set the error if we end up return 0?
-			continue;
-		}
-		dpr = dt_proc_lookup(dtp, pid);
-		assert(dpr != NULL);
-
-		/* Create USDT probes for this process. */
+		/* Construct the probe descriptor. */
 		pdptmp.prv = strchr(s, '/') + 1;
 		pdptmp.mod = pdp->mod[0] == '\0' ? "*" : pdp->mod;
 		pdptmp.fun = pdp->fun[0] == '\0' ? "*" : pdp->fun;
 		pdptmp.prb = pdp->prb[0] == '\0' ? "*" : pdp->prb;
-		if (dt_pid_create_usdt_probes_proc(dtp, dpr, &pdptmp, pcb))
+
+		/* Create USDT probes for this process. */
+		if (dt_pid_create_usdt_probes_proc(dtp, pid, NULL, &pdptmp, pcb))
 			err = 1;
-
-		dt_pid_fix_mod(NULL, &pdptmp, dtp, dpr->dpr_pid);
-
-		dt_proc_release_unlock(dtp, pid);
 	}
 	free(globpat);
 	globfree(&globbuf);
@@ -1336,7 +1383,7 @@ dt_pid_create_probes_module(dtrace_hdl_t *dtp, dt_proc_t *dpr)
 			 * a USDT provider.
 			 */
 			if (strcmp(provname, pdp->prv) != 0) {
-				if (dt_pid_create_usdt_probes_proc(dtp, dpr, pdp, NULL) < 0)
+				if (dt_pid_create_usdt_probes_proc(dtp, -1, dpr, pdp, NULL) < 0)
 					ret = 1;
 				else
 					dt_pid_fix_mod(NULL, pdp, dtp, dpr->dpr_pid);
