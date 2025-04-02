@@ -1,6 +1,6 @@
 /*
  * Oracle Linux DTrace.
- * Copyright (c) 2009, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2025, Oracle and/or its affiliates. All rights reserved.
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * http://oss.oracle.com/licenses/upl.
  */
@@ -22,6 +22,7 @@
 #include <port.h>
 
 #include <zlib.h>
+#include <tracefs.h>
 
 #include <dt_kernel_module.h>
 #include <dt_module.h>
@@ -1044,6 +1045,80 @@ dt_kern_module_find_ctf(dtrace_hdl_t *dtp, dt_module_t *dmp)
 	}
 }
 
+#define PROBE_LIST		TRACEFS "available_filter_functions"
+
+/*
+ * Determine which kernel functions are traceable and mark them.
+ */
+void
+dt_modsym_mark_traceable(dtrace_hdl_t *dtp)
+{
+	FILE			*f;
+	char			*buf = NULL;
+	size_t			len = 0;
+
+	if (dt_symtab_traceable(dtp->dt_exec->dm_kernsyms))
+		return;
+
+	f = fopen(PROBE_LIST, "r");
+	if (f == NULL)
+		return;
+
+	while (getline(&buf, &len, f) >= 0) {
+		char			*p;
+		dt_symbol_t		*sym = NULL;
+
+		/*
+		 * Here buf is either "funcname\n" or "funcname [modname]\n".
+		 * The last line may not have a linefeed.
+		 */
+		p = strchr(buf, '\n');
+		if (p) {
+			*p = '\0';
+			if (p > buf && *(--p) == ']')
+				*p = '\0';
+		}
+
+		/* Now buf is either "funcname" or "funcname [modname". */
+		p = strchr(buf, ' ');
+		if (p) {
+			*p++ = '\0';
+			if (*p == '[')
+				p++;
+		}
+
+#define strstarts(var, x) (strncmp(var, x, strlen (x)) == 0)
+		/* Weed out __ftrace_invalid_address___* entries. */
+		if (strstarts(buf, "__ftrace_invalid_address__") ||
+		    strstarts(buf, "__probestub_") ||
+		    strstarts(buf, "__traceiter_"))
+			continue;
+#undef strstarts
+
+		/*
+		 * If we have a module name, look for the symbol in that
+		 * module.
+		 * If not, perform a general symbol lookup to find its first
+		 * instance.
+		 */
+		if (p) {
+			dt_module_t	*dmp = dt_module_lookup_by_name(dtp, p);
+
+			if (dmp)
+				sym = dt_module_symbol_by_name(dtp, dmp, buf);
+		} else
+			sym = dt_symbol_by_name(dtp, buf);
+
+		if (sym)
+			dt_symbol_set_traceable(sym);
+	}
+
+	free(buf);
+	fclose(f);
+
+	dt_symtab_set_traceable(dtp->dt_exec->dm_kernsyms);
+}
+
 /*
  * Symbol data can be collected in three ways:
  *  - kallmodsyms
@@ -1215,7 +1290,7 @@ dt_modsym_addsym(dtrace_hdl_t *dtp, dt_module_t *dmp, dt_kallsym_t *sym,
 	    (strstarts(sym->name, "__syscall_meta__")) ||
 	    (strstarts(sym->name, "__p_syscall_meta__")) ||
 	    (strstarts(sym->name, "__event_")) ||
-	    (strstarts(sym->name, "event_")) ||
+	    (strstarts(sym->name, "event_") && sym->type == 'd') ||
 	    (strstarts(sym->name, "ftrace_event_")) ||
 	    (strstarts(sym->name, "types__")) ||
 	    (strstarts(sym->name, "args__")) ||
@@ -1223,7 +1298,6 @@ dt_modsym_addsym(dtrace_hdl_t *dtp, dt_module_t *dmp, dt_kallsym_t *sym,
 	    (strstarts(sym->name, "__tpstrtab_")) ||
 	    (strstarts(sym->name, "__tpstrtab__")) ||
 	    (strstarts(sym->name, "__initcall_")) ||
-	    (strstarts(sym->name, "__setup_")) ||
 	    (strstarts(sym->name, "__pci_fixup_")))
 		skip = 1;
 #undef strstarts

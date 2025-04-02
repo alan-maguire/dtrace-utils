@@ -385,19 +385,10 @@ static int add_probe_uprobe(dtrace_hdl_t *dtp, dt_probe_t *prp)
 	if (prp->prov->impl->attach)
 		rc = prp->prov->impl->attach(dtp, prp, fd);
 
-	if (rc == -ENOTSUPP) {
-		char    *s;
-
+	if (rc < 0) {
 		close(fd);
-		if (asprintf(&s, "Failed to enable %s:%s:%s:%s",
-			      prp->desc->prv, prp->desc->mod,
-			      prp->desc->fun, prp->desc->prb) == -1)
-			return dt_set_errno(dtp, EDT_ENABLING_ERR);
-		dt_handle_rawerr(dtp, s);
-		free(s);
-	} else if (rc < 0) {
-		close(fd);
-		return dt_set_errno(dtp, EDT_ENABLING_ERR);
+		return dt_attach_error(dtp, rc, prp->desc->prv, prp->desc->mod,
+						prp->desc->fun, prp->desc->prb);
 	}
 
 	return 0;
@@ -956,16 +947,12 @@ static int trampoline(dt_pcb_t *pcb, uint_t exitlbl)
 		const dt_probe_t	*prp = pop->probe;
 		uint_t			lbl_next = dt_irlist_label(dlp);
 		pid_t			pid;
-		dt_ident_t		*idp;
 
 		if (prp->prov->impl != &dt_pid)
 			continue;
 
 		pid = dt_pid_get_pid(prp->desc, pcb->pcb_hdl, pcb, NULL);
 		assert(pid != -1);
-
-		idp = dt_dlib_add_probe_var(pcb->pcb_hdl, prp);
-		assert(idp != NULL);
 
 		/*
 		 * Populate probe arguments.
@@ -980,7 +967,7 @@ static int trampoline(dt_pcb_t *pcb, uint_t exitlbl)
 		 * process, and emit a sequence of clauses for it when it does.
 		 */
 		emit(dlp,  BPF_BRANCH_IMM(BPF_JNE, BPF_REG_6, pid, lbl_next));
-		emite(dlp, BPF_STORE_IMM(BPF_W, BPF_REG_7, DMST_PRID, prp->desc->id), idp);
+		emit(dlp,  BPF_STORE_IMM(BPF_W, BPF_REG_7, DMST_PRID, prp->desc->id));
 		dt_cg_tramp_call_clauses(pcb, prp, DT_ACTIVITY_ACTIVE);
 		emitl(dlp, lbl_next,
 			   BPF_NOP());
@@ -1013,22 +1000,15 @@ static int trampoline(dt_pcb_t *pcb, uint_t exitlbl)
 	emit(dlp,  BPF_ALU64_IMM(BPF_RSH, BPF_REG_0, 32));
 
 	/*
-	 * Look up in the BPF 'usdt_prids' map.  Space for the look-up key
-	 * will be used on the BPF stack:
-	 *
-	 *     offset                                       value
-	 *
-	 *     -sizeof(usdt_prids_map_key_t)                pid (in %r0)
-	 *
-	 *     -sizeof(usdt_prids_map_key_t) + sizeof(pid_t)
-	 *     ==
-	 *     -sizeof(dtrace_id_t)                         underlying-probe prid
+	 * Look up in the BPF 'usdt_prids' map.  The key should fit into
+	 * trampoline stack slot 0.
 	 */
-	emit(dlp,  BPF_STORE(BPF_W, BPF_REG_9, (int)(-sizeof(usdt_prids_map_key_t)), BPF_REG_0));
-	emit(dlp,  BPF_STORE_IMM(BPF_W, BPF_REG_9, (int)(-sizeof(dtrace_id_t)), uprp->desc->id));
+	assert(sizeof(usdt_prids_map_key_t) <= DT_STK_SLOT_SZ);
+	emit(dlp,  BPF_STORE(BPF_W, BPF_REG_FP, DT_TRAMP_SP_SLOT(0), BPF_REG_0));
+	emit(dlp,  BPF_STORE_IMM(BPF_W, BPF_REG_FP, DT_TRAMP_SP_SLOT(0) + (int)sizeof(pid_t), uprp->desc->id));
 	dt_cg_xsetx(dlp, usdt_prids, DT_LBL_NONE, BPF_REG_1, usdt_prids->di_id);
-	emit(dlp,  BPF_MOV_REG(BPF_REG_2, BPF_REG_9));
-	emit(dlp,  BPF_ALU64_IMM(BPF_ADD, BPF_REG_2, (int)(-sizeof(usdt_prids_map_key_t))));
+	emit(dlp,  BPF_MOV_REG(BPF_REG_2, BPF_REG_FP));
+	emit(dlp,  BPF_ALU64_IMM(BPF_ADD, BPF_REG_2, DT_TRAMP_SP_SLOT(0)));
 	emit(dlp,  BPF_CALL_HELPER(BPF_FUNC_map_lookup_elem));
 	emit(dlp,  BPF_BRANCH_IMM(BPF_JEQ, BPF_REG_0, 0, lbl_exit));
 

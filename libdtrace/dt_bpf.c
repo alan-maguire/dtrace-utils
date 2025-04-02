@@ -1,6 +1,6 @@
 /*
  * Oracle Linux DTrace.
- * Copyright (c) 2019, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2019, 2025, Oracle and/or its affiliates. All rights reserved.
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * http://oss.oracle.com/licenses/upl.
  */
@@ -62,6 +62,26 @@ dt_bpf_error(dtrace_hdl_t *dtp, const char *fmt, ...)
 	va_end(apc);
 
 	return dt_set_errno(dtp, EDT_BPF);
+}
+
+int
+dt_attach_error(dtrace_hdl_t *dtp, int rc, ...)
+{
+	va_list	ap, apc;
+	char	*fmt;
+
+	if (asprintf(&fmt, "Failed to enable %%s:%%s:%%s:%%s: %s",
+		     dtrace_errmsg(dtp, -rc)) > 0) {
+		va_start(ap, rc);
+		va_copy(apc, ap);
+		dt_set_errmsg(dtp, NULL, NULL, NULL, 0, fmt, ap);
+		va_end(ap);
+		dt_debug_printf("bpf", "Failed to enable %s:%s:%s:%s", apc);
+		va_end(apc);
+		free(fmt);
+	}
+
+	return dt_set_errno(dtp, EDT_ENABLING_ERR);
 }
 
 int
@@ -467,19 +487,34 @@ have_attach_type(enum bpf_prog_type ptype, enum bpf_attach_type atype,
 				BPF_RETURN()
 			};
 	dtrace_difo_t	dp;
-	int		fd;
+	int		pfd, tfd = -1;
 
 	dp.dtdo_buf = insns;
 	dp.dtdo_len = ARRAY_SIZE(insns);
 
-	fd = dt_bpf_prog_attach(ptype, atype, 0, btf_id, &dp, 0, NULL, 0);
-	/* If the program loads, we can use the attach type. */
-	if (fd > 0) {
-		close(fd);
-		return 1;
-	}
+	pfd = dt_bpf_prog_attach(ptype, atype, 0, btf_id, &dp, 0, NULL, 0);
+	/* If the program load fails, we cannot iuse the attach type. */
+	if (pfd < 0)
+		goto fail;
 
+	/*
+	 * If the program loads, we still need to verify that probe can be
+	 * opened as a raw tracepoint.  Some kernels allow the program load
+	 * but return -ENOTSUPP when you try to open the raw tracepoint.
+	 */
+	tfd = dt_bpf_raw_tracepoint_open(NULL, pfd);
+	if (tfd < 0)
+		goto fail;
+
+	close(tfd);
+	close(pfd);
+	return 1;
+
+fail:
 	/* Failed -> attach type not available to us */
+	if (pfd >= 0)
+		close(pfd);
+
 	return 0;
 }
 
@@ -1335,19 +1370,11 @@ dt_bpf_load_progs(dtrace_hdl_t *dtp, uint_t cflags)
 		if (prp->prov->impl->attach)
 			rc = prp->prov->impl->attach(dtp, prp, fd);
 
-		if (rc == -ENOTSUPP) {
-			char	*s;
-
+		if (rc < 0) {
 			close(fd);
-			if (asprintf(&s, "Failed to enable %s:%s:%s:%s",
-				     prp->desc->prv, prp->desc->mod,
-				     prp->desc->fun, prp->desc->prb) == -1)
-				return dt_set_errno(dtp, EDT_ENABLING_ERR);
-			dt_handle_rawerr(dtp, s);
-			free(s);
-		} else if (rc < 0) {
-			close(fd);
-			return dt_set_errno(dtp, EDT_ENABLING_ERR);
+			return dt_attach_error(dtp, rc,
+					       prp->desc->prv, prp->desc->mod,
+					       prp->desc->fun, prp->desc->prb);
 		}
 	}
 
