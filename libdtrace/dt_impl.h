@@ -203,14 +203,17 @@ typedef struct dt_kern_path {
 #define DT_DM_KERN_UNLOADED	0x8	/* module not loaded into the kernel */
 
 /*
- * Why do we need (only) 4 slots?  The maximum amount of string arguments to
+ * Why do we need 8 slots?  The maximum amount of string arguments to
  * any function is 2, and if the result is a string as well, that means we may
  * need 3 temporary strings during code generation for that function.
+ * However if operations like inet_ntoa6 are used in ternary operations we need 
+ * 2x the number of slots for left and right.
  *
  * Since string functions can be nested, we can (at most) end up with 1 tstring
  * (from a nested function for which we already generated code) along with a
  * nested function being processed which needs 3 temporary strings as mentioned
- * above.  That brings us to a total of 4.
+ * above.  That brings us to a total of 4, but since the ternary case requires
+ * 2x we need 8 in total.
  *
  * Each tstring needs to be large enough to hold the largest possible string
  * and accomodate the largest known need for tstring space in subroutines.
@@ -222,7 +225,7 @@ typedef struct dt_kern_path {
  * - cleanpath() holds a prepended '/' char, a string, an appended '/' char,
  *   and a terminating NUL char, or STRSZ + 3 chars altogether
  */
-#define DT_TSTRING_SLOTS	4
+#define DT_TSTRING_SLOTS	8
 #define DT_TSTRING_SIZE(dtp)	\
 		MAX(P2ROUNDUP((dtp)->dt_options[DTRACEOPT_STRSIZE] + 3, 8), \
 		    72)
