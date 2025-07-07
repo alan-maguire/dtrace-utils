@@ -1,6 +1,6 @@
 /*
  * Oracle Linux DTrace.
- * Copyright (c) 2006, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2006, 2025, Oracle and/or its affiliates. All rights reserved.
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * http://oss.oracle.com/licenses/upl.
  */
@@ -36,7 +36,6 @@ const dt_provimpl_t *dt_providers[] = {
 	&dt_lockstat,
 	&dt_proc,
 	&dt_profile,
-	&dt_rawfbt,
 	&dt_rawtp,
 	&dt_sched,
 	&dt_sdt,
@@ -91,7 +90,7 @@ static dt_provider_t *
 dt_provider_insert(dtrace_hdl_t *dtp, dt_provider_t *pvp)
 {
 	if (!dtp->dt_provs) {
-		dtp->dt_provs = dt_htab_create(dtp, &dt_provider_htab_ops);
+		dtp->dt_provs = dt_htab_create(&dt_provider_htab_ops);
 		if (dtp->dt_provs == NULL)
 			return NULL;
 	}
@@ -177,11 +176,13 @@ dt_provider_xref(dtrace_hdl_t *dtp, dt_provider_t *pvp, id_t id)
 int
 dt_provider_discover(dtrace_hdl_t *dtp)
 {
-	int i, prid = dtp->dt_probe_id;
+	int		prid = dtp->dt_probe_id;
+	dt_htab_next_t	*it = NULL;
+	dt_provider_t	*pvp;
 
 	/* Discover new probes. */
-	for (i = 0; dt_providers[i]; i++) {
-		if (dt_providers[i]->discover && dt_providers[i]->discover(dtp) < 0)
+	while ((pvp = dt_htab_next(dtp->dt_provs, &it)) != NULL) {
+		if (pvp->impl->discover && pvp->impl->discover(dtp) < 0)
 			return -1;        /* errno is already set */
 	}
 

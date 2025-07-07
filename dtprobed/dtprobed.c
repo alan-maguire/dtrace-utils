@@ -33,6 +33,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <config.h>
+#include <libelf.h>
 
 #include <linux/seccomp.h>
 #include <sys/syscall.h>
@@ -62,7 +63,7 @@
 #include <dtrace/ioctl.h>
 
 #include <dt_list.h>
-#include "dof_parser.h"
+#include "usdt_parser.h"
 #include "dof_stash.h"
 #include "libproc.h"
 
@@ -96,8 +97,8 @@ static const struct cuse_lowlevel_ops dtprobed_clop = {
 
 static int
 process_dof(pid_t pid, int out, int in, dev_t dev, ino_t inum, dev_t exec_dev,
-	    dev_t exec_inum, dof_helper_t *dh, const void *in_buf,
-	    size_t in_bufsz, int reparsing);
+	    dev_t exec_inum, dof_helper_t *dh, const usdt_data_t *data,
+	    int reparsing);
 
 static void
 log_msg(enum fuse_log_level level, const char *fmt, va_list ap)
@@ -302,7 +303,7 @@ cleanup_userdata(void)
 }
 
 /*
- * Parse a piece of DOF.  Return 0 iff the pipe has closed and no more parsing
+ * Parse a piece of DOF.  Return 0 iff the pipe has closed or no more parsing
  * is possible.
  */
 static int
@@ -310,29 +311,29 @@ parse_dof(int in, int out)
 {
 	int ok;
 	dof_helper_t *dh;
-	dof_hdr_t *dof;
+	usdt_data_t *data;
 
-	dh = dof_copyin_helper(in, out, &ok);
+	dh = usdt_copyin_helper(in);
 	if (!dh)
-		return ok;
+		return 0;
 
-	dof = dof_copyin_dof(in, out, &ok);
-	if (!dof) {
+	data = usdt_copyin_data(in, out, &ok);
+	if (!data) {
 		free(dh);
 		return ok;
 	}
 
-	dof_parse(out, dh, dof);
+	usdt_parse(out, dh, data);
 
 	return ok;
 }
 
 /*
- * Kick off the sandboxed DOF parser.  This is run in a seccomp()ed subprocess,
+ * Kick off the sandboxed USDT parser.  This is run in a seccomp()ed subprocess,
  * and sends a stream of dof_parsed_t back to this process.
  */
 static void
-dof_parser_start(void)
+usdt_parser_start(void)
 {
 	int parser_in[2], parser_out[2];
 	if ((pipe(parser_in) < 0) ||
@@ -395,10 +396,10 @@ dof_parser_start(void)
 }
 
 /*
- * Clean up wreckage if the DOF parser dies: optionally restart it.
+ * Clean up wreckage if the USDT parser dies: optionally restart it.
  */
 static void
-dof_parser_tidy(int restart)
+usdt_parser_tidy(int restart)
 {
 	int status = 0;
 
@@ -413,13 +414,13 @@ dof_parser_tidy(int restart)
 	close(parser_out_pipe);
 
 	if (restart)
-		dof_parser_start();
+		usdt_parser_start();
 }
 
 static dof_parsed_t *
-dof_read(pid_t pid, int in)
+usdt_read(pid_t pid, int in)
 {
-	dof_parsed_t *reply = dof_parser_host_read(in, timeout);
+	dof_parsed_t *reply = usdt_parser_host_read(in, timeout);
 
 	if (!reply)
 		return NULL;
@@ -436,6 +437,174 @@ dof_read(pid_t pid, int in)
 	}
 
 	return reply;
+}
+
+/*
+ * Retrieve and process USDT probe data from a .note.usdt section.
+ * The .rodata section is also needed because function names are stored there.
+ */
+static int
+handle_usdt_notes(pid_t pid, uintptr_t addr)
+{
+	ps_prochandle *P = NULL;
+	const prmap_t *mapp, *exec_mapp;
+	const prmap_file_t *prf;
+	dof_helper_t dh;
+	const char *fn, *mod;
+	int fd = -1;
+	Elf *elf = NULL;
+	size_t shstrndx;
+	GElf_Shdr shdr;
+	size_t nbase, dbase;
+	Elf_Scn *scn = NULL, *nscn = NULL, *dscn = NULL;;
+	GElf_Ehdr ehdr;
+	Elf_Data *elfd, *elfn;
+	usdt_data_t ndata, ddata;
+	dev_t dev, exec_dev;
+	ino_t inum, exec_inum;
+	int gen = -1, err;
+
+	/* Grab the process. */
+	if ((P = Pgrab(pid, 2, 0, NULL, &err)) == NULL) {
+		fuse_log(FUSE_LOG_ERR, "%i: dtprobed: process grab failed: %s\n",
+			 pid, strerror(err));
+		return -1;
+	}
+
+	/* Retrieve mapping information. */
+	mapp = Paddr_to_map(P, addr);
+	if (mapp == NULL) {
+		fuse_log(FUSE_LOG_ERR, "%i: dtprobed: cannot look up mapping (process dead?)\n",
+			 pid);
+		goto out;
+	}
+
+	dev = mapp->pr_dev;
+	inum = mapp->pr_inum;
+
+	prf = mapp->pr_file;
+	if (prf == NULL || (mapp = prf->first_segment) == NULL) {
+		fuse_log(FUSE_LOG_ERR, "%i: dtprobed: cannot look up mapping (process dead?)\n",
+			 pid);
+		goto out;
+	} else if ((fn = prf->prf_mapname) == NULL) {
+		fuse_log(FUSE_LOG_ERR, "%i: dtprobed: cannot look up mapname (process dead?)\n",
+			 pid);
+		goto out;
+	}
+	mod = strrchr(fn, '/');
+	if (mod)
+		mod++;
+	else
+		mod = fn;
+	snprintf(dh.dofhp_mod, sizeof(dh.dofhp_mod), "%s", mod);
+
+	dh.dofhp_addr = mapp->pr_vaddr;
+	dh.dofhp_dof = 0;
+
+	fuse_log(FUSE_LOG_DEBUG, "%i: DOF helper { '%s', %lx, %lx }\n",
+		 pid, dh.dofhp_mod, dh.dofhp_addr, dh.dofhp_dof);
+
+	exec_mapp = Plmid_to_map(P, LM_ID_BASE, PR_OBJ_EXEC);
+	if (exec_mapp == NULL || (prf = exec_mapp->pr_file) == NULL) {
+		fuse_log(FUSE_LOG_ERR, "%i: dtprobed: cannot look up mapping (process dead?)\n",
+			 pid);
+		goto out;
+	}
+
+	exec_dev = exec_mapp->pr_dev;
+	exec_inum = exec_mapp->pr_inum;
+
+	/* Open the mapping. */
+	if ((fd = open(fn, O_RDONLY)) < 0) {
+		fuse_log(FUSE_LOG_ERR, "%i: dtprobed: cannot open %s: %s\n",
+			 pid, fn, strerror(errno));
+		goto out;
+	}
+
+	Prelease(P, PS_RELEASE_NORMAL);
+	Pfree(P);
+	P = NULL;
+
+	/* Retrieve the .note.usdt ELF section. */
+	elf_version(EV_CURRENT);
+	if ((elf = elf_begin(fd, ELF_C_READ_MMAP, NULL)) == NULL ||
+	     elf_kind(elf) != ELF_K_ELF)
+		goto elf_err;
+
+	elf_getshdrstrndx(elf, &shstrndx);
+	if (gelf_getehdr(elf, &ehdr) == NULL)
+		goto elf_err;
+	if (ehdr.e_type == ET_EXEC)
+		dh.dofhp_addr = 0;
+
+	while ((scn = elf_nextscn(elf, scn)) != NULL) {
+		const char *name;
+
+		if (gelf_getshdr(scn, &shdr) == NULL)
+			goto elf_err;
+
+		if (shdr.sh_type == SHT_NOTE &&
+		    (name = elf_strptr(elf, shstrndx, shdr.sh_name)) &&
+		    strcmp(name, ".note.usdt") == 0) {
+			nscn = scn;
+			nbase = shdr.sh_addr;
+		} else if (shdr.sh_type == SHT_PROGBITS &&
+		    (name = elf_strptr(elf, shstrndx, shdr.sh_name)) &&
+		    strcmp(name, ".rodata") == 0) {
+			dscn = scn;
+			dbase = shdr.sh_addr;
+		}
+	}
+
+	if (nscn == NULL) {
+		fuse_log(FUSE_LOG_ERR, "%i: dtprobed: no %s section in %s\n",
+			 pid, ".note.usdt", dh.dofhp_mod);
+		goto out;
+	}
+	if (dscn == NULL) {
+		fuse_log(FUSE_LOG_ERR, "%i: dtprobed: no %s section in %s\n",
+			 pid, ".rodata", dh.dofhp_mod);
+		goto out;
+	}
+
+	if ((elfn = elf_getdata(nscn, 0)) == NULL ||
+	    (elfd = elf_getdata(dscn, 0)) == NULL)
+		goto elf_err;
+
+	fuse_log(FUSE_LOG_DEBUG,
+		 "%i: %s with %s section (%lu bytes), %s section (%lu bytes)\n",
+		 pid, dh.dofhp_mod, ".note.usdt", elfn->d_size, ".rodata",
+		 elfd->d_size);
+
+	ndata.base = nbase;
+	ndata.size = elfn->d_size;
+	ndata.buf = elfn->d_buf;
+	ndata.next = &ddata;
+	ddata.base = dbase;
+	ddata.size = elfd->d_size;
+	ddata.buf = elfd->d_buf;
+	ddata.next = NULL;
+	gen = process_dof(pid, parser_out_pipe, parser_in_pipe, dev, inum,
+			  exec_dev, exec_inum, &dh, &ndata, 0);
+
+	goto out;
+
+elf_err:
+	fuse_log(FUSE_LOG_ERR, "%i: dtprobed: cannot read ELF %s: %s\n",
+		 pid, dh.dofhp_mod, elf_errmsg(elf_errno()));
+
+out:
+	if (elf)
+		elf_end(elf);
+	if (fd >= 0)
+		close(fd);
+	if (P) {
+		Prelease(P, PS_RELEASE_NORMAL);
+		Pfree(P);
+	}
+
+	return gen;
 }
 
 /*
@@ -497,6 +666,7 @@ helper_ioctl(fuse_req_t req, int cmd, void *arg,
 	dev_t dev = 0, exec_dev = 0;
 	ino_t inum = 0, exec_inum = 0;
 	int gen;
+	usdt_data_t data;
 
 	/*
 	 * We can just ignore FUSE_IOCTL_COMPAT: the 32-bit and 64-bit versions
@@ -504,6 +674,13 @@ helper_ioctl(fuse_req_t req, int cmd, void *arg,
 	 */
 
 	switch (cmd) {
+	case DTRACEHIOC_HASUSDT:
+		fuse_log(FUSE_LOG_DEBUG, "DTRACEHIOC_HASUSDT from PID %i, addr %lx\n",
+			 pid, (uintptr_t) arg);
+		if ((gen = handle_usdt_notes(pid, (uintptr_t) arg)) < 0)
+			goto process_err;
+
+		goto process_done;
 	case DTRACEHIOC_ADDDOF:
 		break;
 	case DTRACEHIOC_REMOVE:
@@ -687,11 +864,16 @@ chunks_done:
 		     &exec_dev, &exec_inum)) < 0)
 		goto process_err;
 
+	data.base = 0;
+	data.size = userdata->dof_hdr.dofh_loadsz;
+	data.buf = (void *)buf;
+	data.next = NULL;
 	if ((gen = process_dof(pid, parser_out_pipe, parser_in_pipe,
 			       dev, inum, exec_dev, exec_inum, &userdata->dh,
-			       buf, userdata->dof_hdr.dofh_loadsz, 0)) < 0)
+			       &data, 0)) < 0)
 		goto process_err;
 
+process_done:
 	if (fuse_reply_ioctl(req, gen, NULL, 0) < 0)
 		goto process_err;
 
@@ -741,8 +923,8 @@ process_err:
  */
 static int
 process_dof(pid_t pid, int out, int in, dev_t dev, ino_t inum, dev_t exec_dev,
-	    dev_t exec_inum, dof_helper_t *dh, const void *in_buf,
-	    size_t in_bufsz, int reparsing)
+	    dev_t exec_inum, dof_helper_t *dh, const usdt_data_t *data,
+	    int reparsing)
 {
 	dof_parsed_t *provider;
 	size_t i;
@@ -753,8 +935,7 @@ process_dof(pid_t pid, int out, int in, dev_t dev, ino_t inum, dev_t exec_dev,
 
 	do {
 		errmsg = "DOF parser write failed";
-		while ((errno = dof_parser_host_write(out, dh,
-						      (dof_hdr_t *) in_buf)) == EAGAIN);
+		while ((errno = usdt_parser_host_write(out, dh, data)) == EAGAIN);
 		if (errno != 0)
 			goto err;
 
@@ -765,15 +946,15 @@ process_dof(pid_t pid, int out, int in, dev_t dev, ino_t inum, dev_t exec_dev,
 		 */
 
 		errmsg = "parsed DOF read failed";
-		provider = dof_read(pid, in);
+		provider = usdt_read(pid, in);
 		if (!provider) {
-			if (tries++ > 1)
+			if (tries++ > 0)
 				goto err;
 			/*
 			 * Tidying reopens the parser in and out pipes: catch
 			 * up with this.
 			 */
-			dof_parser_tidy(1);
+			usdt_parser_tidy(1);
 			out = parser_out_pipe;
 			in = parser_in_pipe;
 			continue;
@@ -791,27 +972,36 @@ process_dof(pid_t pid, int out, int in, dev_t dev, ino_t inum, dev_t exec_dev,
 			 provider->provider.name, provider->provider.nprobes);
 
 		for (i = 0; i < provider->provider.nprobes; i++) {
-			dof_parsed_t *probe = dof_read(pid, in);
+			dof_parsed_t *probe = usdt_read(pid, in);
 			size_t j;
 
 			errmsg = "no probes in this provider, or parse state corrupt";
 			if (!probe || probe->type != DIT_PROBE)
 				goto err;
 
+			if (_dtrace_debug) {
+				const char *mod, *fun, *prb;
+
+				mod = probe->probe.name;
+				fun = mod + strlen(mod) + 1;
+				prb = fun + strlen(fun) + 1;
+				fuse_log(FUSE_LOG_DEBUG,
+					 "Parser read: adding %s:%s:%s:%s to stash\n",
+					 provider->provider.name,
+					 mod, fun, prb);
+			}
+
 			if (dof_stash_push_parsed(&accum, probe) < 0)
 				goto oom;
 
 			j = 0;
 			do {
-				dof_parsed_t *tp = dof_read(pid, in);
+				dof_parsed_t *tp = usdt_read(pid, in);
 
 				errmsg = "no tracepoints in a probe, or parse state corrupt";
 				if (!tp || tp->type == DIT_PROVIDER ||
 				    tp->type == DIT_PROBE || tp->type == DIT_EOF)
 					goto err;
-
-				fuse_log(FUSE_LOG_DEBUG, "Parser read: adding %s:%s to stash\n",
-					 provider->provider.name, probe->probe.name);
 
 				if (dof_stash_push_parsed(&accum, tp) < 0)
 					goto oom;
@@ -822,7 +1012,7 @@ process_dof(pid_t pid, int out, int in, dev_t dev, ino_t inum, dev_t exec_dev,
 		}
 
 		errmsg = "subsequent provider read failed, or stream not properly terminated";
-		provider = dof_read(pid, in);
+		provider = usdt_read(pid, in);
 		if (!provider)
 			goto err;
 	}
@@ -833,8 +1023,8 @@ process_dof(pid_t pid, int out, int in, dev_t dev, ino_t inum, dev_t exec_dev,
 		goto oom;
 
 	if (!reparsing)
-		if ((gen = dof_stash_add(pid, dev, inum, exec_dev, exec_inum, dh,
-					 in_buf, in_bufsz)) < 0)
+		if ((gen = dof_stash_add(pid, dev, inum, exec_dev, exec_inum,
+					 dh, data)) < 0)
 			goto fileio;
 
 	if (dof_stash_write_parsed(pid, dev, inum, &accum) < 0) {
@@ -860,7 +1050,7 @@ fileio:
 
 proc_err:
 	dof_stash_free(&accum);
-	dof_parser_tidy(1);
+	usdt_parser_tidy(1);
 	return -1;
 }
 
@@ -1071,7 +1261,7 @@ main(int argc, char *argv[])
 		testing = 1;
 	}
 
-	dof_parser_start();
+	usdt_parser_start();
 
 	if (dof_stash_init(statedir) < 0)
 		exit(1);
@@ -1102,7 +1292,7 @@ main(int argc, char *argv[])
 
 	ret = loop();
 
-	dof_parser_tidy(0);
+	usdt_parser_tidy(0);
 	teardown_device();
 
 	if (ret == 0)

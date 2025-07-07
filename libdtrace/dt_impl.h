@@ -1,6 +1,6 @@
 /*
  * Oracle Linux DTrace.
- * Copyright (c) 2010, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2025, Oracle and/or its affiliates. All rights reserved.
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * http://oss.oracle.com/licenses/upl.
  */
@@ -52,7 +52,11 @@ extern "C" {
 #include <dt_version.h>
 
 #ifndef ARRAY_SIZE
-# define ARRAY_SIZE(arr)		(sizeof(arr) / sizeof((arr)[0]))
+# define ARRAY_SIZE(arr)	(sizeof(arr) / sizeof((arr)[0]))
+#endif
+
+#ifndef ALIGN
+# define ALIGN(n, p2)		(((n) + (p2) - 1) & ~((p2) - 1))
 #endif
 
 #ifndef __stringify
@@ -297,6 +301,7 @@ struct dtrace_hdl {
 	dt_htab_t *dt_kernsyms; /* htab of kernel symbol names */
 	char *dt_ctfa_path;	/* path to vmlinux.ctfa */
 	ctf_archive_t *dt_ctfa; /* ctf archive for the entire kernel tree */
+	char *dt_btf_path;	/* path to vmlinux.btf */
 	struct dt_btf *dt_shared_btf; /* BTF data for the kernel (shared) */
 	ctf_file_t *dt_shared_ctf; /* Handle to the shared CTF */
 	dt_htab_t *dt_kernpaths; /* hash table of dt_kern_path_t's */

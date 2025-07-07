@@ -1,6 +1,6 @@
 /*
  * Oracle Linux DTrace.
- * Copyright (c) 2003, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2025, Oracle and/or its affiliates. All rights reserved.
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * http://oss.oracle.com/licenses/upl.
  */
@@ -41,6 +41,8 @@
 #include <dt_dis.h>
 #include <dt_peb.h>
 #include <dt_pid.h>
+
+#include <dt_git_version.h>
 
 const dt_version_t _dtrace_versions[] = {
 	DT_VERS_1_0,	/* D API 1.0.0 (PSARC 2001/466) Solaris 10 FCS */
@@ -908,6 +910,11 @@ dt_vopen(int version, int flags, int *errp,
 			return set_open_errno(dtp, errp, EDT_NOMEM);
 	}
 
+	/* If DTRACE_OPT_BTFPATH is set, use it.  */
+	dtp->dt_btf_path = getenv("DTRACE_OPT_BTFPATH");
+	if (dtp->dt_btf_path)
+		dtp->dt_btf_path = strdup(dtp->dt_btf_path);
+
 	/*
 	 * Update the module list and load the values for the macro variable
 	 * definitions according to the current process.
@@ -1144,9 +1151,6 @@ dt_vopen(int version, int flags, int *errp,
 	if (dtrace_setopt(dtp, "libdir", _dtrace_libdir) != 0)
 		return set_open_errno(dtp, errp, dtp->dt_errno);
 
-	dt_bpf_init(dtp);
-	dt_btf_get_module_ids(dtp);
-
 	return dtp;
 }
 
@@ -1179,6 +1183,8 @@ dtrace_init(dtrace_hdl_t *dtp)
 	/*
 	 * Initialize the BPF library handling.
 	 */
+	dt_bpf_init(dtp);
+	dt_btf_get_module_ids(dtp);
 	dt_dlib_init(dtp);
 
 	/*
@@ -1268,10 +1274,10 @@ dtrace_close(dtrace_hdl_t *dtp)
 		dt_idhash_destroy(dtp->dt_bpfsyms);
 
 
-	dt_htab_destroy(dtp, dtp->dt_kernsyms);
+	dt_htab_destroy(dtp->dt_kernsyms);
 	dtp->dt_kernsyms = NULL;
-	dt_htab_destroy(dtp, dtp->dt_mods);
-	dt_htab_destroy(dtp, dtp->dt_kernpaths);
+	dt_htab_destroy(dtp->dt_mods);
+	dt_htab_destroy(dtp->dt_kernpaths);
 
 	if (dtp->dt_shared_btf != NULL)
 		dt_btf_destroy(dtp, dtp->dt_shared_btf);
@@ -1301,7 +1307,7 @@ dtrace_close(dtrace_hdl_t *dtp)
 	dt_dof_fini(dtp);
 	dt_probe_fini(dtp);
 
-	dt_htab_destroy(dtp, dtp->dt_provs);
+	dt_htab_destroy(dtp->dt_provs);
 
 	for (i = 1; i < dtp->dt_cpp_argc; i++)
 		free(dtp->dt_cpp_argv[i]);

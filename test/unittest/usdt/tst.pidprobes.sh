@@ -19,6 +19,7 @@ mapping=${3:-}
 
 # Set up test directory.
 
+d=`pwd`
 DIRNAME=$tmpdir/pidprobes.$$.$RANDOM
 mkdir -p $DIRNAME
 cd $DIRNAME
@@ -69,20 +70,17 @@ if [ $? -ne 0 ]; then
 	echo "failed to generate header file" >&2
 	exit 1
 fi
-cc $test_cppflags -c main.c
+$CC $test_cppflags -c main.c
 if [ $? -ne 0 ]; then
 	echo "failed to compile test" >&2
 	exit 1
-fi
-if [[ `uname -m` = "aarch64" ]]; then
-	objdump -d main.o > disasm_foo.txt.before
 fi
 $dtrace $dt_flags -G -64 -s prov.d main.o
 if [ $? -ne 0 ]; then
 	echo "failed to create DOF" >&2
 	exit 1
 fi
-cc $test_ldflags -o main main.o prov.o
+$CC $test_ldflags -o main main.o prov.o
 if [ $? -ne 0 ]; then
 	echo "failed to link final executable" >&2
 	exit 1
@@ -104,7 +102,7 @@ fi
 
 # Disassemble foo().  (simplify with --disassemble=foo)
 
-objdump -d main | awk '
+$OBJDUMP -d main | awk '
 BEGIN { use = 0 }             # start by not printing lines
 use == 1 && NF == 0 { exit }  # if printing lines but hit a blank, then exit
 use == 1 { print }            # print lines
@@ -112,7 +110,7 @@ use == 1 { print }            # print lines
 ' > disasm_foo.txt
 if [ $? -ne 0 ]; then
 	echo cannot objdump main
-	objdump -d main
+	$OBJDUMP -d main
 	exit 1
 fi
 
@@ -183,84 +181,50 @@ if [ `awk 'NF != 0 { print $1 }' dtrace.out | uniq | wc -l` -ne 1 ]; then
 fi
 pid=`awk 'NF != 0 { print $1 }' dtrace.out | uniq`
 
-# From the disassembly, get the PCs for USDT probes.
-# Check libdtrace/dt_link.c's arch-dependent dt_modtext() to see
-# what sequence of instructions signal a USDT probe.
-
-if [[ `uname -m` = "x86_64" ]]; then
-
-	# It is the first of five nop instructions in a row.
-	# So track pc[-6], pc[-5], pc[-4], pc[-3], pc[-2], pc[-1], pc[0]
-	# as well as whether they are nop.
-
-	usdt_pcs_all=`awk '
-	BEGIN {
-		pc6 = -1; is_nop6 = 0;
-		pc5 = -1; is_nop5 = 0;
-		pc4 = -1; is_nop4 = 0;
-		pc3 = -1; is_nop3 = 0;
-		pc2 = -1; is_nop2 = 0;
-		pc1 = -1; is_nop1 = 0;
+# From showUSDT output, get the PCs for USDT probes.  We look for output like:
+#     Note usdt, type N:
+#       Offset 0xoffset
+#       Function Offset 0xfoffset
+#       Probe pyramid::foo:entry
+$d/test/utils/showUSDT main | awk '
+/^ *Note usdt, type / {
+	getline;
+	if (!match($0, /^ *Offset *0x[0-9a-f]* *$/)) {
+		print "ERROR: expect Offset";
+		exit(1);
 	}
-	{
-		# pc0 is current instruction
-		pc0 = strtonum("0x"$1);
+	off = strtonum($2);
 
-		# decide whether it is a nop
-		is_nop0 = 0;
-		if (NF == 3 &&
-		    $2 == "90" &&
-		    $3 == "nop")
-			is_nop0 = 1;
+	getline;
+	if (!match($0, /^ *Function Offset *0x[0-9a-f]* *$/)) {
+		print "ERROR: expect Function Offset";
+		exit(1);
+	}
 
-		# report if pc[-5] is a USDT instruction
-		if (is_nop6 == 0 &&
-		    is_nop5 == 1 &&
-		    is_nop4 == 1 &&
-		    is_nop3 == 1 &&
-		    is_nop2 == 1 &&
-		    is_nop1 == 1 &&
-		    is_nop0 == 0)
-			print pc5;
+	getline;
+	if (!match($0, /^ *Probe pyramid::foo:entry/)) {
+		print "ERROR: expect Probe pyramid::foo:entry";
+		exit(1);
+	}
 
-		# prepare advance to next instruction
-		pc6 = pc5;  is_nop6 = is_nop5;
-		pc5 = pc4;  is_nop5 = is_nop4;
-		pc4 = pc3;  is_nop4 = is_nop3;
-		pc3 = pc2;  is_nop3 = is_nop2;
-		pc2 = pc1;  is_nop2 = is_nop1;
-		pc1 = pc0;  is_nop1 = is_nop0;
-	}' disasm_foo.txt`
+	print off, $0;
+} ' > usdt_pcs.txt
+if [ $? -ne 0 ]; then
+	echo ERROR: showUSDT output to awk
+	$d/test/utils/showUSDT main
+	exit 1
+fi
+usdt_pcs=`awk '!/is-enabled/ { sub("0x", ""); print $1}' usdt_pcs.txt`
+usdt_pcs_isenabled=`awk '/is-enabled/ { sub("0x", ""); print $1}' usdt_pcs.txt`
 
-	# We expect 4 USDT probes (2 USDT and 2 is-enabled).
-	if [ `echo $usdt_pcs_all | awk '{print NF}'` -ne 4 ]; then
-		echo ERROR: expected 4 USDT probes but got $usdt_pcs_all
-		cat disasm_foo.txt
-		exit 1
-	fi
+# We expect 2 USDT probes plus 2 is-enabled.
 
-	# Separate them into regular and is-enabled PCs.
-	# We assume they alternate.
-	usdt_pcs=`echo $usdt_pcs_all | awk '{ print $1, $3 }'`
-	usdt_pcs_isenabled=`echo $usdt_pcs_all | awk '{ print $2, $4 }'`
-
-elif [[ `uname -m` = "aarch64" ]]; then
-
-	# The initial compilation of foo() makes it obvious where the
-	# USDT probes are.  We just have to add the function offset in.
-	usdt_pcs=`awk '/<__dtrace_pyramid___entry>/ { print strtonum("0x"$1) + '$pc0' }' disasm_foo.txt.before`
-	usdt_pcs_isenabled=`awk '/<__dtraceenabled_pyramid___entry>/ { print strtonum("0x"$1) + '$pc0' }' disasm_foo.txt.before`
-
-	# We expect 4 USDT probes (2 USDT and 2 is-enabled).
-	if [ `echo $usdt_pcs | awk '{print NF}'` -ne 2 -o \
-	     `echo $usdt_pcs_isenabled | awk '{print NF}'` -ne 2 ]; then
-		echo ERROR: expected 4 USDT probes but got $usdt_pcs and $usdt_pcs_isenabled
-		cat disasm_foo.txt.before
-		exit 1
-	fi
-
-else
-	echo ERROR unrecognized machine hardware name
+if [ `echo $usdt_pcs           | awk '{print NF}'` -ne 2 ]; then
+	echo ERROR: expected 2 USDT regular probes but got $usdt_pcs
+	exit 1
+fi
+if [ `echo $usdt_pcs_isenabled | awk '{print NF}'` -ne 2 ]; then
+	echo ERROR: expected 2 USDT is-enabled probes but got $usdt_pcs_isenabled
 	exit 1
 fi
 
@@ -277,7 +241,7 @@ done
 
 pc_return=`awk '/'$pid' pid'$pid':main:foo:return/ { print $NF }' dtrace.out`
 
-objdump -d main | awk '
+$OBJDUMP -d main | awk '
 /^[0-9a-f]* <.*>:$/ { myfunc = $NF }         # enter a new function
 /^ *'$pc_return'/ { print myfunc; exit(0) }  # report the function $pc_return is in
 ' > return_func.out

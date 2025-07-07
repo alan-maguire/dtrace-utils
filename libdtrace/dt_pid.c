@@ -30,7 +30,7 @@
 #endif
 
 #include <port.h>
-#include <dof_parser.h>
+#include <usdt_parser.h>
 
 #include <dt_impl.h>
 #include <dt_program.h>
@@ -1076,6 +1076,9 @@ dt_pid_create_usdt_probes_proc(dtrace_hdl_t *dtp, pid_t pid, dt_proc_t *dpr,
 
 			if (argmap)
 				psp.pps_argmap = argmap;
+
+			if (tp->tracepoint.args[0] != 0)
+				psp.pps_sargv = tp->tracepoint.args;
 
 			dt_dprintf("providing %s:%s:%s:%s for pid %d\n", psp.pps_prv,
 				   psp.pps_mod, psp.pps_fun, psp.pps_prb, psp.pps_pid);
