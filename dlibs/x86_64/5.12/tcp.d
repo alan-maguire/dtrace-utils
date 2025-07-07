@@ -180,21 +180,21 @@ translator tcpsinfo_t < struct tcp_sock *T > {
 	    0;
 	tcps_laddr =
 	    T && ((struct sock *)T)->__sk_common.skc_family == AF_INET ?
-	    inet_ntoa((ipaddr_t *)&((struct sock *)T)->__sk_common.skc_rcv_saddr) :
+	    inet_ntoa(&((struct sock *)T)->__sk_common.skc_rcv_saddr) :
 	    T && ((struct sock *)T)->__sk_common.skc_family == AF_INET6 ?
 	    inet_ntoa6(&((struct sock *)T)->__sk_common.skc_v6_rcv_saddr) :
 	    arg2 != NULL && (*(uint8_t *)arg2 >> 4) == 4 ?
-	    inet_ntoa((ipaddr_t *)&((struct iphdr *)arg2)->daddr) :
+	    inet_ntoa(&((struct iphdr *)arg2)->daddr) :
 	    arg2 != NULL && (*(uint8_t *)arg2 >> 4) == 6 ?
 	    inet_ntoa6(&((struct ipv6hdr *)arg2)->daddr) :
 	    "<unknown>";
 	tcps_raddr =
 	    T && ((struct sock *)T)->__sk_common.skc_family == AF_INET ?
-	    inet_ntoa((ipaddr_t *)&((struct sock *)T)->__sk_common.skc_daddr) :
+	    inet_ntoa(&((struct sock *)T)->__sk_common.skc_daddr) :
 	    T && ((struct sock *)T)->__sk_common.skc_family == AF_INET6 ?
 	    inet_ntoa6(&((struct sock *)T)->__sk_common.skc_v6_daddr) :
 	    arg2 != NULL && (*(uint8_t *)arg2 >> 4) == 4 ?
-	    inet_ntoa((ipaddr_t *)&((struct iphdr *)arg2)->saddr) :
+	    inet_ntoa(&((struct iphdr *)arg2)->saddr) :
 	    arg2 != NULL && (*(uint8_t *)arg2 >> 4) == 6 ?
 	    inet_ntoa6(&((struct ipv6hdr *)arg2)->saddr) :
 	    "<unknown";
